@@ -159,14 +159,14 @@ app.get('/api/health', async () => ({
   ok: true,
   time: new Date().toISOString(),
   storageRoot: config.storageRoot,
-  destinations: ['ROOT', 'Inbound', 'Outbound'],
+  destinations: ['Inbound', 'Outbound'],
   httpsEnabled: config.httpsEnabled,
   storageAuthConfigured: Boolean(config.storageUsername && config.storagePassword)
 }));
 
 app.post('/api/upload', async (request, reply) => {
   const filePart = await request.file();
-  const destination = filePart?.fields?.destination?.value || 'ROOT';
+  const destination = filePart?.fields?.destination?.value || 'Inbound';
 
   if (!filePart) {
     return reply.code(400).send({ ok: false, message: 'image is required' });

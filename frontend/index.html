@@ -18,8 +18,11 @@
         <div class="overlay overlay-top">
           <div class="brand-chip">PDA Camera</div>
           <div class="destination-chip">
-            <span>Mode</span>
-            <strong>Test Save To Root</strong>
+            <label for="destinationSelect">Save to</label>
+            <select id="destinationSelect" aria-label="Save image to folder">
+              <option value="Inbound">Inbound</option>
+              <option value="Outbound">Outbound</option>
+            </select>
           </div>
           <div id="networkStatus" class="pill">Idle</div>
         </div>

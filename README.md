@@ -8,7 +8,8 @@ Minimal web app for Zebra TC22 camera capture and immediate upload to local stor
 - Compresses the captured image in browser memory with Canvas before upload
 - Shows a full-screen capture preview with `Confirm` and `Cancel` before upload
 - Uploads a single JPEG via `multipart/form-data`
-- Stores the file directly under `Inbound` or `Outbound`
+- Lets the operator choose `Inbound` or `Outbound` before capture
+- Stores the file directly under the selected folder
 - Keeps the UI minimal and camera-first for warehouse workflows
 
 ## Architecture
@@ -157,6 +158,7 @@ This is not suitable as the final deployment method.
 
 - The camera view fills the screen like a mobile camera app
 - Destination and status stay as floating overlays
+- The top destination dropdown selects `Inbound` or `Outbound`
 - After tapping capture, the live stream pauses into a preview screen
 - Tap `Confirm` to upload or `Cancel` to discard and return to live camera
 

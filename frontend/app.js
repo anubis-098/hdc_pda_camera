@@ -30,6 +30,7 @@ const liveControls = document.getElementById('liveControls');
 const previewPanel = document.getElementById('previewPanel');
 const settingsPanel = document.getElementById('settingsPanel');
 const settingsBtn = document.getElementById('settingsBtn');
+const destinationSelect = document.getElementById('destinationSelect');
 const resolutionSelect = document.getElementById('resolutionSelect');
 const ratioSelect = document.getElementById('ratioSelect');
 const captureBtn = document.getElementById('captureBtn');
@@ -299,7 +300,7 @@ async function uploadCapture(blob) {
   const extension = '.jpg';
   const filename = `capture_${Date.now()}${extension}`;
   const formData = new FormData();
-  formData.append('destination', 'ROOT');
+  formData.append('destination', destinationSelect.value);
   formData.append('image', blob, filename);
 
   const response = await fetch('/api/upload', {
