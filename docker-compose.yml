@@ -1,0 +1,14 @@
+services:
+  pda-camera:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pda-camera
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      # Keep the app private; Nginx handles LAN access and HTTPS on the host.
+      - "127.0.0.1:${PORT:-8090}:8090"
+    volumes:
+      - ${STORAGE_HOST_PATH:-./uploads}:/data/uploads

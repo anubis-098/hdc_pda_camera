@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f4f4f4">
+    <title>PDA Camera Upload</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app">
+      <section class="camera-shell">
+        <video id="video" playsinline autoplay muted></video>
+        <canvas id="captureCanvas" hidden></canvas>
+        <img id="preview" alt="Preview">
+        <div class="crop-guide" id="cropGuide" aria-hidden="true"></div>
+
+        <div class="overlay overlay-top">
+          <div class="brand-chip">PDA Camera</div>
+          <div class="destination-chip">
+            <span>Mode</span>
+            <strong>Test Save To Root</strong>
+          </div>
+          <div id="networkStatus" class="pill">Idle</div>
+        </div>
+
+        <div class="overlay overlay-bottom" id="liveControls">
+          <button id="settingsBtn" class="btn btn-icon btn-glass" type="button" aria-label="Open settings" title="Open settings">
+            <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3.75 13.15 5.8l2.37.33.82 2.25 2.12 1.02-.37 2.35L18.7 12l.39 2.25-2.12 1.02-.82 2.25-2.37.33L12 20.25l-1.15-2.05-2.37-.33-.82-2.25-2.12-1.02.37-2.25-.37-2.35 2.12-1.02.82-2.25 2.37-.33Z"></path>
+              <circle cx="12" cy="12" r="3.1"></circle>
+            </svg>
+          </button>
+          <button id="captureBtn" class="btn btn-capture" type="button" disabled aria-label="Capture image" title="Capture image">
+            <span class="capture-core" aria-hidden="true">
+              <svg class="capture-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7.5 8.5h2l1.2-1.8h2.6l1.2 1.8h2a2.5 2.5 0 0 1 2.5 2.5v5a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 5 16v-5a2.5 2.5 0 0 1 2.5-2.5Z"></path>
+                <circle cx="12" cy="13.5" r="3"></circle>
+              </svg>
+            </span>
+          </button>
+          <button id="switchBtn" class="btn btn-icon btn-glass" type="button" aria-label="Switch camera" title="Switch camera">
+            <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 11a8 8 0 0 0-14.9-3"></path>
+              <path d="M4 4v5h5"></path>
+              <path d="M4 13a8 8 0 0 0 14.9 3"></path>
+              <path d="M20 20v-5h-5"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div class="overlay overlay-settings hidden" id="settingsPanel">
+          <div class="settings-card">
+            <div class="settings-title">Camera Settings</div>
+            <label class="settings-field">
+              <span>Resolution</span>
+              <select id="resolutionSelect">
+                <option value="1920x1080">1920 x 1080</option>
+                <option value="1280x720">1280 x 720</option>
+                <option value="1024x768">1024 x 768</option>
+              </select>
+            </label>
+            <label class="settings-field">
+              <span>Ratio</span>
+              <select id="ratioSelect">
+                <option value="9:16">9 : 16</option>
+                <option value="3:4">3 : 4</option>
+                <option value="4:3">4 : 3</option>
+                <option value="1:1">1 : 1</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="overlay overlay-preview hidden" id="previewPanel">
+          <div class="preview-actions">
+            <button id="confirmBtn" class="btn btn-stack btn-confirm" type="button" aria-label="Confirm upload">
+              <svg class="stack-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m5 12 4.2 4.2L19 6.5"></path>
+              </svg>
+              <span>Confirm</span>
+            </button>
+            <button id="cancelBtn" class="btn btn-stack btn-cancel" type="button" aria-label="Cancel capture">
+              <svg class="stack-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 6 18 18"></path>
+                <path d="M18 6 6 18"></path>
+              </svg>
+              <span>Cancel</span>
+            </button>
+          </div>
+          <div class="preview-meta">
+            <div id="captureStats">No image</div>
+            <div id="serverResult"></div>
+          </div>
+        </div>
+
+        <div class="overlay overlay-message">
+          <div id="liveHint">Align item and tap capture</div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
+  </html>
