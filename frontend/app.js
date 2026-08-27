@@ -161,7 +161,7 @@ function updateZoomButtons() {
   const supportsZoom = Boolean(capabilities && typeof capabilities.zoom === 'object');
 
   for (const button of zoomButtons) {
-    button.disabled = !supportsZoom;
+    button.disabled = Number(button.dataset.zoom) > 1 && !supportsZoom;
     button.classList.toggle('is-active', Number(button.dataset.zoom) === state.zoom);
   }
 }
@@ -169,7 +169,20 @@ function updateZoomButtons() {
 async function applyZoom(zoom) {
   const track = state.stream?.getVideoTracks()[0];
   const capabilities = track?.getCapabilities?.();
-  if (!track || !capabilities || typeof capabilities.zoom !== 'object') {
+  if (!track) {
+    return false;
+  }
+
+  // x1 means the camera's own default. Do not force zoom: 1 because some
+  // Zebra camera profiles expose a different native default value.
+  if (zoom === 1) {
+    await track.applyConstraints({ advanced: [] });
+    state.zoom = 1;
+    updateZoomButtons();
+    return true;
+  }
+
+  if (!capabilities || typeof capabilities.zoom !== 'object') {
     return false;
   }
 
