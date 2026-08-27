@@ -55,6 +55,19 @@ function getResolutionPreset() {
   return { width, height };
 }
 
+function getCameraResolutionPreset() {
+  // Keep one 4:3 sensor framing for every output ratio. The final crop is
+  // handled by the on-screen guide, so changing ratio does not change FOV.
+  const longSide = Math.max(getResolutionPreset().width, getResolutionPreset().height);
+  if (longSide >= 1800) {
+    return { width: 1440, height: 1080 };
+  }
+  if (longSide >= 1200) {
+    return { width: 1280, height: 960 };
+  }
+  return { width: 1024, height: 768 };
+}
+
 function getRatioAspect() {
   const [width, height] = state.selectedRatio.split(':').map(Number);
   return width / height;
@@ -203,13 +216,14 @@ async function openCamera(deviceId) {
   liveHint.textContent = 'Opening camera';
   setSettingsOpen(false);
 
-  const preset = getResolutionPreset();
+  const cameraPreset = getCameraResolutionPreset();
 
   const constraints = {
     audio: false,
     video: {
-      width: { ideal: preset.width },
-      height: { ideal: preset.height },
+      width: { ideal: cameraPreset.width },
+      height: { ideal: cameraPreset.height },
+      aspectRatio: { ideal: 4 / 3 },
       facingMode: 'environment'
     }
   };
@@ -578,7 +592,17 @@ ratioSelect.addEventListener('change', async () => {
 for (const button of zoomButtons) {
   button.addEventListener('click', async () => {
     try {
-      const applied = await applyZoom(Number(button.dataset.zoom));
+      const selectedZoom = Number(button.dataset.zoom);
+      if (selectedZoom === 1) {
+        // Reopening the track is the reliable way to restore the TC22 native
+        // default after a hardware zoom constraint was applied.
+        state.zoom = 1;
+        await openCamera(state.devices[state.currentDeviceIndex]?.deviceId);
+        liveHint.textContent = 'Zoom reset to default';
+        return;
+      }
+
+      const applied = await applyZoom(selectedZoom);
       if (!applied) {
         liveHint.textContent = 'Zoom is not supported by this camera';
       }

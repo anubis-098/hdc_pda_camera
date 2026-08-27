@@ -93,6 +93,10 @@ body {
   opacity: 0;
 }
 
+.preview-mode .crop-guide {
+  display: none !important;
+}
+
 .overlay {
   position: absolute;
   left: 0;
