@@ -6,6 +6,7 @@ const state = {
   capturedBlob: null,
   previewUrl: '',
   settingsOpen: false,
+  zoom: 1,
   selectedResolution: '1080x1920',
   selectedRatio: '9:16'
 };
@@ -22,6 +23,16 @@ const video = document.getElementById('video');
 const canvas = document.getElementById('captureCanvas');
 const preview = document.getElementById('preview');
 const cropGuide = document.getElementById('cropGuide');
+const galleryBtn = document.getElementById('galleryBtn');
+const galleryPanel = document.getElementById('galleryPanel');
+const galleryCloseBtn = document.getElementById('galleryCloseBtn');
+const galleryDestinationSelect = document.getElementById('galleryDestinationSelect');
+const galleryRefreshBtn = document.getElementById('galleryRefreshBtn');
+const galleryStatus = document.getElementById('galleryStatus');
+const galleryGrid = document.getElementById('galleryGrid');
+const imageViewer = document.getElementById('imageViewer');
+const imageViewerCloseBtn = document.getElementById('imageViewerCloseBtn');
+const imageViewerImage = document.getElementById('imageViewerImage');
 const networkStatus = document.getElementById('networkStatus');
 const captureStats = document.getElementById('captureStats');
 const serverResult = document.getElementById('serverResult');
@@ -33,6 +44,7 @@ const settingsBtn = document.getElementById('settingsBtn');
 const destinationSelect = document.getElementById('destinationSelect');
 const resolutionSelect = document.getElementById('resolutionSelect');
 const ratioSelect = document.getElementById('ratioSelect');
+const zoomButtons = [...document.querySelectorAll('[data-zoom]')];
 const captureBtn = document.getElementById('captureBtn');
 const switchBtn = document.getElementById('switchBtn');
 const confirmBtn = document.getElementById('confirmBtn');
@@ -143,6 +155,34 @@ async function stopCamera() {
   state.stream = null;
 }
 
+function updateZoomButtons() {
+  const track = state.stream?.getVideoTracks()[0];
+  const capabilities = track?.getCapabilities?.();
+  const supportsZoom = Boolean(capabilities && typeof capabilities.zoom === 'object');
+
+  for (const button of zoomButtons) {
+    button.disabled = !supportsZoom;
+    button.classList.toggle('is-active', Number(button.dataset.zoom) === state.zoom);
+  }
+}
+
+async function applyZoom(zoom) {
+  const track = state.stream?.getVideoTracks()[0];
+  const capabilities = track?.getCapabilities?.();
+  if (!track || !capabilities || typeof capabilities.zoom !== 'object') {
+    return false;
+  }
+
+  const min = Number(capabilities.zoom.min ?? 1);
+  const max = Number(capabilities.zoom.max ?? zoom);
+  const value = Math.min(max, Math.max(min, zoom));
+
+  await track.applyConstraints({ advanced: [{ zoom: value }] });
+  state.zoom = value;
+  updateZoomButtons();
+  return true;
+}
+
 async function openCamera(deviceId) {
   await stopCamera();
   clearPreview();
@@ -169,6 +209,10 @@ async function openCamera(deviceId) {
   video.srcObject = state.stream;
   await video.play();
   await listVideoDevices();
+  updateZoomButtons();
+  if (state.zoom !== 1) {
+    await applyZoom(state.zoom);
+  }
   captureBtn.disabled = false;
   setStatus('Camera Ready', 'active');
   liveHint.textContent = 'Align item and tap capture';
@@ -316,6 +360,91 @@ async function uploadCapture(blob) {
   return result;
 }
 
+function setGalleryOpen(enabled) {
+  galleryPanel.classList.toggle('hidden', !enabled);
+  if (enabled) {
+    setSettingsOpen(false);
+    loadGallery();
+  }
+}
+
+function setImageViewerOpen(url) {
+  imageViewerImage.src = url || '';
+  imageViewer.classList.toggle('hidden', !url);
+}
+
+function formatGalleryDate(value) {
+  return new Date(value).toLocaleString();
+}
+
+async function loadGallery() {
+  const destination = galleryDestinationSelect.value;
+  galleryStatus.textContent = 'Loading';
+  galleryGrid.replaceChildren();
+
+  try {
+    const response = await fetch(`/api/images?destination=${encodeURIComponent(destination)}`);
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || 'Unable to load gallery');
+    }
+
+    if (result.images.length === 0) {
+      galleryStatus.textContent = 'No images in this folder';
+      return;
+    }
+
+    galleryStatus.textContent = `${result.images.length} image(s)`;
+    for (const image of result.images) {
+      const item = document.createElement('article');
+      item.className = 'gallery-item';
+
+      const thumbnail = document.createElement('img');
+      thumbnail.src = image.url;
+      thumbnail.alt = image.filename;
+      thumbnail.loading = 'lazy';
+      thumbnail.addEventListener('click', () => setImageViewerOpen(image.url));
+
+      const details = document.createElement('div');
+      details.className = 'gallery-item-details';
+      details.textContent = `${formatBytes(image.size)} | ${formatGalleryDate(image.modifiedAt)}`;
+
+      const deleteButton = document.createElement('button');
+      deleteButton.className = 'btn gallery-delete';
+      deleteButton.type = 'button';
+      deleteButton.textContent = 'Delete';
+      deleteButton.addEventListener('click', () => deleteGalleryImage(destination, image.filename));
+
+      item.append(thumbnail, details, deleteButton);
+      galleryGrid.append(item);
+    }
+  } catch (error) {
+    console.error(error);
+    galleryStatus.textContent = error.message;
+  }
+}
+
+async function deleteGalleryImage(destination, filename) {
+  if (!window.confirm(`Delete ${filename}?`)) {
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `/api/images/${encodeURIComponent(destination)}/${encodeURIComponent(filename)}`,
+      { method: 'DELETE' }
+    );
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || 'Unable to delete image');
+    }
+    await loadGallery();
+  } catch (error) {
+    console.error(error);
+    galleryStatus.textContent = error.message;
+  }
+}
+
 async function handleCapture() {
   if (state.uploadInFlight) {
     return;
@@ -383,6 +512,17 @@ settingsBtn.addEventListener('click', () => {
   setSettingsOpen(!state.settingsOpen);
 });
 
+galleryBtn.addEventListener('click', () => setGalleryOpen(true));
+galleryCloseBtn.addEventListener('click', () => setGalleryOpen(false));
+galleryRefreshBtn.addEventListener('click', loadGallery);
+galleryDestinationSelect.addEventListener('change', loadGallery);
+imageViewerCloseBtn.addEventListener('click', () => setImageViewerOpen(''));
+imageViewer.addEventListener('click', (event) => {
+  if (event.target === imageViewer) {
+    setImageViewerOpen('');
+  }
+});
+
 switchBtn.addEventListener('click', async () => {
   try {
     const deviceId = nextDeviceId();
@@ -421,6 +561,20 @@ ratioSelect.addEventListener('change', async () => {
     liveHint.textContent = error.message;
   }
 });
+
+for (const button of zoomButtons) {
+  button.addEventListener('click', async () => {
+    try {
+      const applied = await applyZoom(Number(button.dataset.zoom));
+      if (!applied) {
+        liveHint.textContent = 'Zoom is not supported by this camera';
+      }
+    } catch (error) {
+      console.error(error);
+      liveHint.textContent = 'Unable to change zoom';
+    }
+  });
+}
 
 document.addEventListener('click', (event) => {
   if (!state.settingsOpen) {

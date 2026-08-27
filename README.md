@@ -8,7 +8,7 @@ Minimal web app for Zebra TC22 camera capture and immediate upload to local stor
 - Compresses the captured image in browser memory with Canvas before upload
 - Shows a full-screen capture preview with `Confirm` and `Cancel` before upload
 - Uploads a single JPEG via `multipart/form-data`
-- Lets the operator choose `Inbound` or `Outbound` before capture
+- Lets the operator choose `Return`, `Outbound`, or `Other` before capture
 - Stores the file directly under the selected folder
 - Keeps the UI minimal and camera-first for warehouse workflows
 
@@ -43,8 +43,9 @@ npm install
 ```env
 PORT=8090
 STORAGE_ROOT=\\10.84.185.144\hdc\Scanner\PDA
-INBOUND_DIR=Inbound
+RETURN_DIR=Return
 OUTBOUND_DIR=Outbound
+OTHER_DIR=Other
 STORAGE_USERNAME=
 STORAGE_PASSWORD=
 ```
@@ -76,8 +77,9 @@ For camera access on Zebra Chrome, prefer:
 PORT=8090
 STORAGE_ROOT=/data/uploads
 STORAGE_HOST_PATH=/mnt/pda-camera
-INBOUND_DIR=Inbound
+RETURN_DIR=Return
 OUTBOUND_DIR=Outbound
+OTHER_DIR=Other
 ```
 
 `STORAGE_HOST_PATH` is the Ubuntu host path. If the final storage is an SMB share,
@@ -106,20 +108,21 @@ docker compose down
 
 - API endpoint: `POST /api/upload`
 - Form fields:
-  - `destination`: `Inbound` or `Outbound`
+  - `destination`: `Return`, `Outbound`, or `Other`
   - `image`: JPEG file
 
 Saved file pattern:
 
 ```text
-2026-08-26T10-15-20-123Z__Inbound.jpg
+2026-08-26T10-15-20-123Z__Return.jpg
 ```
 
 Files are grouped by date:
 
 ```text
-<STORAGE_ROOT>\Inbound\2026-08-26\...
+<STORAGE_ROOT>\Return\2026-08-26\...
 <STORAGE_ROOT>\Outbound\2026-08-26\...
+<STORAGE_ROOT>\Other\2026-08-26\...
 ```
 
 ## HTTPS in LAN
@@ -158,7 +161,7 @@ This is not suitable as the final deployment method.
 
 - The camera view fills the screen like a mobile camera app
 - Destination and status stay as floating overlays
-- The top destination dropdown selects `Inbound` or `Outbound`
+- The top destination dropdown selects `Return`, `Outbound`, or `Other`
 - After tapping capture, the live stream pauses into a preview screen
 - Tap `Confirm` to upload or `Cancel` to discard and return to live camera
 
