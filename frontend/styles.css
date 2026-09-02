@@ -24,7 +24,7 @@ body {
   min-height: 100dvh;
   background: #000;
   color: var(--text);
-  font-family: "Segoe UI", Tahoma, sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 body {
@@ -55,6 +55,7 @@ body {
 
 #video {
   object-fit: cover;
+  touch-action: none;
 }
 
 #preview {
@@ -97,6 +98,10 @@ body {
   display: none !important;
 }
 
+.preview-mode .zoom-overlay {
+  display: none;
+}
+
 .overlay {
   position: absolute;
   left: 0;
@@ -118,6 +123,11 @@ body {
 
 .overlay-top .pill {
   flex: 0 0 auto;
+  margin-left: 0;
+}
+
+.overlay-top .top-icon {
+  margin-left: auto;
 }
 
 .top-icon {
@@ -144,7 +154,7 @@ body {
 }
 
 .overlay-message {
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 140px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 180px);
   justify-content: center;
   padding: 0 16px;
 }
@@ -156,13 +166,26 @@ body {
   transform: translateY(-50%);
 }
 
+.overlay-settings.info-open {
+  top: 50%;
+  right: 14px;
+  left: auto;
+  transform: translateY(-50%);
+}
+
+.overlay-settings.info-open .settings-card {
+  width: min(380px, calc(100vw - 28px));
+}
+
 .settings-card {
-  width: min(240px, calc(100vw - 28px));
+  width: min(300px, calc(100vw - 28px));
+  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 92px);
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 18px;
   background: rgba(18, 18, 18, 0.92);
   box-shadow: var(--shadow);
+  overflow-y: auto;
 }
 
 .gallery-panel {
@@ -214,6 +237,37 @@ body {
   background: var(--surface);
 }
 
+.gallery-bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.gallery-action {
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 9px;
+  color: var(--text);
+  font-size: 12px;
+  background: #2a2a2a;
+}
+
+.gallery-delete-selected {
+  background: var(--danger);
+}
+
+.gallery-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.gallery-selection-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .gallery-status {
   min-height: 22px;
   margin: 12px 2px 8px;
@@ -228,6 +282,7 @@ body {
 }
 
 .gallery-item {
+  position: relative;
   display: grid;
   gap: 6px;
   min-width: 0;
@@ -235,6 +290,20 @@ body {
   border: 1px solid var(--line);
   border-radius: 14px;
   background: #171717;
+}
+
+.gallery-item.is-selected {
+  border-color: var(--text);
+}
+
+.gallery-select {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 1;
+  width: 20px;
+  height: 20px;
+  accent-color: var(--capture);
 }
 
 .gallery-item img {
@@ -284,10 +353,156 @@ body {
   right: 14px;
 }
 
+.zoom-overlay {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 126px);
+  justify-content: center;
+  padding: 0 18px;
+  pointer-events: none;
+}
+
+.zoom-control {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.zoom-toggle {
+  min-width: 58px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 999px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(18, 18, 18, 0.84);
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+}
+
+.zoom-toggle:disabled {
+  opacity: 0.45;
+}
+
+.zoom-slider-panel {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: min(270px, calc(100vw - 36px));
+  margin-left: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--glass-strong);
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+}
+
+.zoom-slider-panel input {
+  flex: 1;
+  width: 100%;
+  accent-color: var(--capture);
+}
+
+.zoom-hint {
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.zoom-slider-panel input:disabled {
+  opacity: 0.45;
+}
+
+.is-unavailable {
+  color: var(--muted);
+}
+
 .settings-title {
   margin-bottom: 10px;
   font-size: 13px;
   font-weight: 700;
+}
+
+.settings-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.settings-title-row .settings-title {
+  margin-bottom: 0;
+}
+
+.info-btn {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 700;
+  background: #2a2a2a;
+}
+
+.device-info {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-height: min(260px, 38dvh);
+  gap: 5px;
+  margin-bottom: 12px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #0b0b0b;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.device-info-heading {
+  grid-column: 1 / -1;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.device-info-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.device-info-row span {
+  flex: 0 0 auto;
+  max-width: 52%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.device-info-row span::after {
+  content: ':';
+}
+
+.device-info-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.device-info-row:last-child {
+  grid-column: 1 / -1;
 }
 
 .settings-field {
@@ -315,33 +530,6 @@ body {
   background: var(--surface);
 }
 
-.zoom-options {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-}
-
-.zoom-btn {
-  min-height: 38px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  background: var(--surface);
-}
-
-.zoom-btn.is-active {
-  border-color: var(--text);
-  background: #333;
-}
-
-.zoom-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
-}
-
 .hidden {
   display: none;
 }
@@ -355,6 +543,7 @@ body {
   background: var(--glass);
   backdrop-filter: blur(10px);
   box-shadow: var(--shadow);
+
 }
 
 .brand-chip,
@@ -370,11 +559,15 @@ body {
 }
 
 .pill {
-  margin-left: auto;
-  min-width: 88px;
-  text-align: center;
-  font-size: 12px;
-  font-weight: 700;
+  width: 14px;
+  min-width: 14px;
+  height: 14px;
+  min-height: 14px;
+  padding: 0;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  font-size: 0;
+  line-height: 0;
 }
 
 .destination-chip {
