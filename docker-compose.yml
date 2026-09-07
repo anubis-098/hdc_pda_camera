@@ -7,6 +7,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      PORT: 8090
+      HOST: 0.0.0.0
+      STORAGE_ROOT: /data/uploads
     ports:
       # Keep the app private; Nginx handles LAN access and HTTPS on the host.
       - "127.0.0.1:${PORT:-8090}:8090"

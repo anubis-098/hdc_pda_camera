@@ -4,3 +4,5 @@ node_modules/
 uploads/
 certs/
 npm-debug.log*
+test-results/
+playwright-report/

@@ -12,6 +12,37 @@ Minimal web app for Zebra TC22 camera capture and immediate upload to local stor
 - Stores the file directly under the selected folder
 - Keeps the UI minimal and camera-first for warehouse workflows
 
+## Image settings
+
+`Saved image size` controls the exact dimensions of both the preview JPEG and
+the uploaded file. Changing this setting does not restart the camera.
+
+| Ratio | High | Medium | Small |
+| --- | --- | --- | --- |
+| 9:16 | 1080 x 1920 | 720 x 1280 | 576 x 1024 |
+| 3:4 | 1080 x 1440 | 960 x 1280 | 768 x 1024 |
+| 4:3 | 1440 x 1080 | 1280 x 960 | 1024 x 768 |
+| 1:1 | 1080 x 1080 | 960 x 960 | 720 x 720 |
+
+Image quality is separate: High clarity (default), Balanced, or Smaller file.
+There is no fixed 200-300 KB guarantee: detailed photos need more bytes.
+Ratio, size, quality, language and destination are remembered on the device.
+Changing ratio preserves the corresponding size tier.
+
+The app requests a 2560 x 1920 live stream as a preference. The browser chooses
+the actual supported stream. It attempts a native still photo using the maximum
+photo width exposed by the camera, then resizes to the selected output dimensions.
+If native capture fails, times out, or returns a different aspect/orientation,
+the already captured video frame is used. Preview shows the source type and size,
+and warns when enlargement was necessary. Enlargement cannot restore missing detail.
+
+The crop guide has the selected aspect ratio, including 9:16 when the display
+does not have that exact shape. It disappears when reviewing the final JPEG.
+Native photos use the normalized crop edges from the live frame. Some hardware
+uses a different field of view for stills despite matching aspect ratios; verify
+framing, orientation and zoom on the actual TC22. API capability exposure varies
+by camera/browser; see the [Image Capture specification](https://www.w3.org/TR/image-capture/).
+
 ## Architecture
 
 - Frontend: static HTML + vanilla JavaScript
@@ -116,17 +147,25 @@ docker compose down
 Saved file pattern:
 
 ```text
-2026-08-26T10-15-20-123Z__Return.jpg
+2026-08-26T10-15-20-123Z__Return__<unique-id>.jpg
 ```
 
-Files are grouped by date:
+Files are stored directly in the selected folder. Dates are in the filenames:
 
 ```text
-<STORAGE_ROOT>\Inbound\2026-08-26\...
-<STORAGE_ROOT>\Return\2026-08-26\...
-<STORAGE_ROOT>\Outbound\2026-08-26\...
-<STORAGE_ROOT>\Other\2026-08-26\...
+<STORAGE_ROOT>\Inbound\...jpg
+<STORAGE_ROOT>\Return\...jpg
+<STORAGE_ROOT>\Outbound\...jpg
+<STORAGE_ROOT>\Other\...jpg
 ```
+
+Both multipart field orders are accepted. A destination is required; `ROOT` is
+not accepted. Uploads must be JPEG and pass basic start/end-marker and size checks
+(this is not a full image decoder). Files are streamed to temporary `.part` files
+and renamed only after the complete request is validated. Failed requests clean
+up temporary files. A process crash can leave hidden `.part` files for maintenance;
+these are never listed in Gallery. If an upload loses its response, check Gallery
+before retrying because the server may already have saved the image.
 
 ## HTTPS in LAN
 
@@ -189,3 +228,19 @@ For the current Docker setup, copy `nginx/nginx.conf.example` to the Ubuntu
 Nginx site configuration. It terminates HTTPS on port `443` and proxies to
 `http://127.0.0.1:8090`. Keep `HTTPS_ENABLED=false` in the app `.env` because
 TLS is terminated by Nginx.
+
+## Verification
+
+Use Node.js 24 (also used by Docker) and run `npm ci` then `npm test`.
+`npm run test:browser` uses local Chrome with a simulated camera and an isolated
+test server on 127.0.0.1:18091. Set `PDA_TEST_BROWSER=msedge` to use Edge instead.
+Tests use temporary storage, never the configured File Server. Browser tests cover
+every output size, byte-for-byte upload, native fallback, rapid zoom, saved settings,
+Thai notices and viewport bounds. Real TC22 sensor behavior, SOTI trust deployment
+and Ubuntu SMB permissions still need an on-device deployment check.
+
+After updating code on Ubuntu, run `docker compose up -d --build` and reload the
+page. Compose keeps the container on 8090; `PORT` selects the host-side loopback
+port. Match Nginx's upstream to that host port. Existing public HTTPS ports and
+certificates are not changed by this update. The app is designed for the trusted
+warehouse LAN; gallery/delete APIs do not implement user login.

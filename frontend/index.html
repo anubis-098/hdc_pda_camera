@@ -74,11 +74,11 @@
               </select>
             </label>
             <label class="settings-field">
-              <span data-i18n="resolution">Resolution</span>
+              <span data-i18n="resolution">Saved image size</span>
               <select id="resolutionSelect">
-                <option value="1920x1080">1920 x 1080</option>
-                <option value="1280x720">1280 x 720</option>
-                <option value="1024x768">1024 x 768</option>
+                <option value="1080x1920">1080 x 1920</option>
+                <option value="720x1280">720 x 1280</option>
+                <option value="576x1024">576 x 1024</option>
               </select>
             </label>
             <label class="settings-field">
@@ -90,6 +90,15 @@
                 <option value="1:1">1 : 1</option>
               </select>
             </label>
+            <label class="settings-field">
+              <span data-i18n="quality">Image quality</span>
+              <select id="qualitySelect">
+                <option value="0.9" data-i18n="qualityHigh">High clarity</option>
+                <option value="0.82" data-i18n="qualityBalanced">Balanced</option>
+                <option value="0.72" data-i18n="qualitySmall">Smaller file</option>
+              </select>
+            </label>
+            <p class="settings-note" data-i18n="outputHelp">The saved image matches the selected size. File size varies with detail.</p>
           </div>
         </div>
 
@@ -168,16 +177,18 @@
           </div>
           <div class="preview-meta">
             <div id="captureStats">No image</div>
+            <div id="captureSource"></div>
             <div id="serverResult"></div>
           </div>
         </div>
 
         <div class="overlay overlay-message">
-          <div id="liveHint" data-i18n="alignCapture">Align item and tap capture</div>
+          <div id="liveHint" role="status" aria-live="polite" data-i18n="alignCapture">Align item and tap capture</div>
         </div>
       </section>
     </main>
 
+    <script src="capture-utils.js" defer></script>
     <script src="app.js" defer></script>
   </body>
   </html>

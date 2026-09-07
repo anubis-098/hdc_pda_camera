@@ -4,6 +4,10 @@ const state = {
   currentDeviceIndex: 0,
   activeDeviceId: '',
   uploadInFlight: false,
+  captureInFlight: false,
+  cameraOpening: false,
+  capturedDestination: '',
+  quality: 0.9,
   capturedBlob: null,
   previewUrl: '',
   settingsOpen: false,
@@ -13,12 +17,7 @@ const state = {
   selectedRatio: '9:16'
 };
 
-const RATIO_PRESETS = {
-  '9:16': ['1080x1920', '720x1280', '576x1024'],
-  '3:4': ['1080x1440', '960x1280', '768x1024'],
-  '4:3': ['1440x1080', '1280x960', '1024x768'],
-  '1:1': ['1080x1080', '960x960', '720x720']
-};
+const RATIO_PRESETS = CaptureUtils.presets;
 
 const cameraShell = document.querySelector('.camera-shell');
 const video = document.getElementById('video');
@@ -40,10 +39,12 @@ const imageViewerCloseBtn = document.getElementById('imageViewerCloseBtn');
 const imageViewerImage = document.getElementById('imageViewerImage');
 const networkStatus = document.getElementById('networkStatus');
 const captureStats = document.getElementById('captureStats');
+const captureSource = document.getElementById('captureSource');
 const serverResult = document.getElementById('serverResult');
 const liveHint = document.getElementById('liveHint');
 const liveControls = document.getElementById('liveControls');
 const previewPanel = document.getElementById('previewPanel');
+const messageOverlay = document.querySelector('.overlay-message');
 const settingsPanel = document.getElementById('settingsPanel');
 const settingsBtn = document.getElementById('settingsBtn');
 const deviceInfoBtn = document.getElementById('deviceInfoBtn');
@@ -52,6 +53,7 @@ const languageSelect = document.getElementById('languageSelect');
 const destinationSelect = document.getElementById('destinationSelect');
 const resolutionSelect = document.getElementById('resolutionSelect');
 const ratioSelect = document.getElementById('ratioSelect');
+const qualitySelect = document.getElementById('qualitySelect');
 const zoomSlider = document.getElementById('zoomSlider');
 const zoomValue = document.getElementById('zoomValue');
 const zoomSliderPanel = document.getElementById('zoomSliderPanel');
@@ -68,8 +70,14 @@ let pinchStartZoom = 1;
 let zoomFrameRequest = 0;
 let pendingZoom = 1;
 let zoomResetInFlight = false;
+let liveHintFadeTimer;
 const selectedGalleryImages = new Set();
 let galleryImages = [];
+let galleryRequestId = 0;
+let galleryDeleting = false;
+let zoomOperation = Promise.resolve();
+let zoomRevision = 0;
+let nativeCaptureDisabled = false;
 
 const translations = {
   en: {
@@ -80,12 +88,30 @@ const translations = {
     otherFolder: 'Other',
     cameraSettings: 'Camera Settings',
     language: 'Language',
-    resolution: 'Resolution',
+    resolution: 'Saved image size',
+    quality: 'Image quality',
+    qualityHigh: 'High clarity',
+    qualityBalanced: 'Balanced',
+    qualitySmall: 'Smaller file',
+    outputHelp: 'The saved image matches the selected size. File size varies with detail.',
+    nativePhoto: 'Camera photo',
+    videoPhoto: 'Video fallback',
+    enlarged: 'Enlarged from a smaller source; detail may be limited.',
+    reviewPhoto: 'Review photo before upload',
+    savedTo: 'Saved to',
+    captureCancelled: 'Capture cancelled',
+    uploading: 'Uploading',
+    ratioChanged: 'Ratio set to',
+    cameraUnavailable: 'Camera unavailable. Tap switch camera to retry.',
+    requestFailed: 'Unable to contact the server. Check the connection and try again.',
+    uploadUncertain: 'Upload interrupted. Check Gallery before retrying; the image may already be saved.',
     ratio: 'Ratio',
     gallery: 'Gallery',
     drag: 'Drag',
     alignCapture: 'Align item and tap capture',
     openingCamera: 'Opening camera',
+    resolutionChanged: 'Resolution set to',
+    resolutionFailed: 'Unable to change resolution',
     confirm: 'Confirm',
     cancel: 'Cancel',
     selectAll: 'Select all',
@@ -105,10 +131,28 @@ const translations = {
     notAvailable: 'Not available'
   },
   th: {
+    resolutionChanged: '\u0e40\u0e1b\u0e25\u0e35\u0e48\u0e22\u0e19\u0e04\u0e27\u0e32\u0e21\u0e25\u0e30\u0e40\u0e2d\u0e35\u0e22\u0e14\u0e40\u0e1b\u0e47\u0e19',
+    resolutionFailed: '\u0e44\u0e21\u0e48\u0e2a\u0e32\u0e21\u0e32\u0e23\u0e16\u0e40\u0e1b\u0e25\u0e35\u0e48\u0e22\u0e19\u0e04\u0e27\u0e32\u0e21\u0e25\u0e30\u0e40\u0e2d\u0e35\u0e22\u0e14\u0e44\u0e14\u0e49',
     saveTo: 'บันทึกที่',
     cameraSettings: 'ตั้งค่ากล้อง',
     language: 'ภาษา',
-    resolution: 'ความละเอียด',
+    resolution: 'ขนาดภาพที่บันทึก',
+    quality: 'คุณภาพภาพ',
+    qualityHigh: 'คมชัดสูง',
+    qualityBalanced: 'สมดุล',
+    qualitySmall: 'ไฟล์เล็ก',
+    outputHelp: 'ภาพที่บันทึกจะตรงกับขนาดที่เลือก ขนาดไฟล์ขึ้นอยู่กับรายละเอียดภาพ',
+    nativePhoto: 'ภาพจากกล้อง',
+    videoPhoto: 'ภาพสำรองจากวิดีโอ',
+    enlarged: 'ขยายจากภาพต้นฉบับที่เล็กกว่า รายละเอียดอาจไม่เต็มความละเอียด',
+    reviewPhoto: 'ตรวจสอบภาพก่อนบันทึก',
+    savedTo: 'บันทึกไปที่',
+    captureCancelled: 'ยกเลิกการถ่ายภาพแล้ว',
+    uploading: 'กำลังส่งภาพ',
+    ratioChanged: 'เปลี่ยนอัตราส่วนเป็น',
+    cameraUnavailable: 'กล้องไม่พร้อมใช้งาน กดสลับกล้องเพื่อลองอีกครั้ง',
+    requestFailed: 'ติดต่อเซิร์ฟเวอร์ไม่ได้ ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง',
+    uploadUncertain: 'การส่งภาพขาดการเชื่อมต่อ ตรวจสอบในรูปภาพก่อนลองใหม่ เพราะอาจบันทึกแล้ว',
     ratio: 'อัตราส่วน',
     gallery: 'รูปภาพ',
     drag: 'ลากเพื่อปรับ',
@@ -191,21 +235,13 @@ function renderDeviceInfo() {
 }
 
 function getResolutionPreset() {
-  const [width, height] = state.selectedResolution.split('x').map(Number);
-  return { width, height };
+  return CaptureUtils.outputSize(state.selectedRatio, state.selectedResolution);
 }
 
 function getCameraResolutionPreset() {
   // Keep one 4:3 sensor framing for every output ratio. The final crop is
   // handled by the on-screen guide, so changing ratio does not change FOV.
-  const longSide = Math.max(getResolutionPreset().width, getResolutionPreset().height);
-  if (longSide >= 1800) {
-    return { width: 1440, height: 1080 };
-  }
-  if (longSide >= 1200) {
-    return { width: 1280, height: 960 };
-  }
-  return { width: 1024, height: 768 };
+  return { width: 2560, height: 1920 };
 }
 
 function getRatioAspect() {
@@ -216,7 +252,39 @@ function getRatioAspect() {
 function setGuideAspect() {
   const aspect = getRatioAspect();
   cameraShell.style.setProperty('--guide-aspect', String(aspect));
-  cropGuide.classList.toggle('is-hidden-guide', state.selectedRatio === '9:16');
+  const rect = video.getBoundingClientRect();
+  const fullFrame = Math.abs(rect.width / rect.height - aspect) < 0.001;
+  const width = fullFrame ? rect.width : Math.min(Math.max(1, rect.width - 32), Math.max(1, rect.height - 220) * aspect);
+  cropGuide.style.width = `${width}px`;
+  cropGuide.style.height = `${width / aspect}px`;
+  cropGuide.classList.toggle('is-hidden-guide', fullFrame);
+}
+
+function savePreferences() {
+  try {
+    localStorage.setItem('pda-camera-settings', JSON.stringify({
+      ratio: state.selectedRatio, resolution: state.selectedResolution,
+      quality: state.quality, destination: destinationSelect.value
+    }));
+  } catch { /* Camera capture also works with storage disabled. */ }
+}
+
+function cameraBusy() {
+  return state.cameraOpening || state.captureInFlight || state.uploadInFlight;
+}
+
+function updateCameraControls() {
+  const busy = cameraBusy();
+  const reviewing = Boolean(state.capturedBlob);
+  captureBtn.disabled = busy || reviewing || state.stream?.getVideoTracks()[0]?.readyState !== 'live';
+  for (const control of [switchBtn, resolutionSelect, ratioSelect, qualitySelect, destinationSelect, settingsBtn]) {
+    control.disabled = busy || reviewing;
+  }
+  galleryBtn.disabled = busy;
+  zoomSlider.disabled = busy || reviewing || Number(zoomSlider.max) <= Number(zoomSlider.min);
+  zoomValue.disabled = zoomSlider.disabled;
+  confirmBtn.disabled = busy || !reviewing;
+  cancelBtn.disabled = busy;
 }
 
 function syncResolutionOptions() {
@@ -249,6 +317,26 @@ function setStatus(text, kind = 'idle') {
   };
   networkStatus.style.background = colors[kind] || colors.idle;
 }
+
+function scheduleLiveHintFade() {
+  clearTimeout(liveHintFadeTimer);
+  messageOverlay.classList.remove('is-fading');
+
+  if (!liveHint.textContent.trim() || liveHint.classList.contains('hidden')) {
+    return;
+  }
+
+  liveHintFadeTimer = setTimeout(() => {
+    messageOverlay.classList.add('is-fading');
+  }, 3200);
+}
+
+const liveHintObserver = new MutationObserver(scheduleLiveHintFade);
+liveHintObserver.observe(liveHint, {
+  childList: true,
+  characterData: true,
+  subtree: true
+});
 
 function formatBytes(bytes) {
   if (bytes < 1024) {
@@ -287,10 +375,13 @@ function clearPreview() {
 
   state.previewUrl = '';
   state.capturedBlob = null;
+  state.capturedDestination = '';
   preview.removeAttribute('src');
   captureStats.textContent = 'No image';
   serverResult.textContent = '';
+  captureSource.textContent = '';
   setPreviewMode(false);
+  updateCameraControls();
 }
 
 async function listVideoDevices() {
@@ -334,6 +425,7 @@ function updateZoomControl() {
   zoomValue.textContent = `x${Number(state.zoom).toFixed(1)}`;
   zoomValue.classList.toggle('is-unavailable', !supportsZoom);
   zoomValue.disabled = !supportsZoom;
+  updateCameraControls();
 }
 
 function setZoomExpanded(expanded) {
@@ -348,15 +440,6 @@ async function applyZoom(zoom) {
     return false;
   }
 
-  // x1 means the camera's own default. Do not force zoom: 1 because some
-  // Zebra camera profiles expose a different native default value.
-  if (zoom === 1) {
-    await track.applyConstraints({ advanced: [] });
-    state.zoom = 1;
-    updateZoomControl();
-    return true;
-  }
-
   if (!capabilities || typeof capabilities.zoom !== 'object') {
     return false;
   }
@@ -365,21 +448,22 @@ async function applyZoom(zoom) {
   const max = Number(capabilities.zoom.max ?? zoom);
   const value = Math.min(max, Math.max(min, zoom));
 
-  await track.applyConstraints({ advanced: [{ zoom: value }] });
+  const constraints = track.getConstraints?.() || {};
+  await track.applyConstraints({ ...constraints, advanced: [{ zoom: value }] });
+  if (state.stream?.getVideoTracks()[0] !== track) return false;
   state.zoom = value;
   updateZoomControl();
   return true;
 }
 
 async function resetCameraZoom() {
-  if (zoomResetInFlight) {
+  if (zoomResetInFlight || cameraBusy()) {
     return;
   }
 
   zoomResetInFlight = true;
-  state.zoom = 1;
   try {
-    await openCamera(state.activeDeviceId);
+    await openCamera(state.activeDeviceId, true);
   } finally {
     zoomResetInFlight = false;
   }
@@ -394,26 +478,27 @@ function setZoomDisplay(value) {
 }
 
 function queueZoom(value) {
+  if (cameraBusy() || zoomResetInFlight || state.capturedBlob || zoomSlider.disabled) return;
   const min = Number(zoomSlider.min);
   const max = Number(zoomSlider.max);
-  pendingZoom = Math.min(max, Math.max(min, value));
+  pendingZoom = Math.min(max, Math.max(min, Math.round(value * 10) / 10));
   setZoomDisplay(pendingZoom);
 
   if (zoomFrameRequest) {
     return;
   }
 
-  zoomFrameRequest = requestAnimationFrame(async () => {
+  zoomFrameRequest = requestAnimationFrame(() => {
     zoomFrameRequest = 0;
-    if (pendingZoom <= 1) {
-      return;
-    }
-    try {
-      await applyZoom(pendingZoom);
-    } catch (error) {
+    const value = pendingZoom;
+    const revision = ++zoomRevision;
+    zoomOperation = zoomOperation.then(async () => {
+      if (revision !== zoomRevision || value <= 1 || state.cameraOpening) return;
+      await applyZoom(value);
+    }).catch((error) => {
       console.error(error);
       liveHint.textContent = 'Unable to change zoom';
-    }
+    });
   });
 }
 
@@ -425,50 +510,95 @@ function getPointerDistance() {
   return Math.hypot(pointers[0].x - pointers[1].x, pointers[0].y - pointers[1].y);
 }
 
-async function openCamera(deviceId) {
-  await stopCamera();
-  clearPreview();
-  setStatus('Opening', 'warn');
-  liveHint.textContent = translate('openingCamera');
-  setSettingsOpen(false);
-
-  const cameraPreset = getCameraResolutionPreset();
-
-  const constraints = {
-    audio: false,
-    video: {
-      width: { ideal: cameraPreset.width },
-      height: { ideal: cameraPreset.height },
-      aspectRatio: { ideal: 4 / 3 }
+async function openCamera(deviceId, resetZoom = false) {
+  if (cameraBusy()) return;
+  state.cameraOpening = true;
+  updateCameraControls();
+  zoomRevision++;
+  if (zoomFrameRequest) cancelAnimationFrame(zoomFrameRequest);
+  zoomFrameRequest = 0;
+  activePointers.clear();
+  try {
+    await zoomOperation;
+    if (resetZoom) {
+      state.zoom = 1;
+      pendingZoom = 1;
     }
-  };
+    await stopCamera();
+    clearPreview();
+    setStatus('Opening', 'warn');
+    liveHint.textContent = translate('openingCamera');
+    setSettingsOpen(false);
 
-  if (deviceId) {
-    constraints.video.deviceId = { exact: deviceId };
-  } else {
-    constraints.video.facingMode = 'environment';
-  }
+    const cameraPreset = getCameraResolutionPreset();
 
-  state.stream = await navigator.mediaDevices.getUserMedia(constraints);
-  const activeTrack = state.stream.getVideoTracks()[0];
-  state.activeDeviceId = activeTrack.getSettings?.().deviceId || deviceId || '';
-  video.srcObject = state.stream;
-  await video.play();
-  await listVideoDevices();
-  const activeIndex = state.devices.findIndex((device) => device.deviceId === state.activeDeviceId);
-  if (activeIndex >= 0) {
-    state.currentDeviceIndex = activeIndex;
+    const constraints = {
+      audio: false,
+      video: {
+        width: { ideal: cameraPreset.width },
+        height: { ideal: cameraPreset.height },
+        aspectRatio: { ideal: 4 / 3 },
+        frameRate: { ideal: 24, max: 30 }
+      }
+    };
+
+    if (deviceId) {
+      constraints.video.deviceId = { exact: deviceId };
+    } else {
+      constraints.video.facingMode = 'environment';
+    }
+
+    let expired = false;
+    let openingTimer;
+    try {
+      const opening = navigator.mediaDevices.getUserMedia(constraints).then((stream) => {
+        if (expired) {
+          stream.getTracks().forEach((track) => track.stop());
+          throw new Error(translate('cameraUnavailable'));
+        }
+        return stream;
+      });
+      state.stream = await Promise.race([opening, new Promise((_, reject) => {
+        openingTimer = setTimeout(() => reject(new Error(translate('cameraUnavailable'))), 20000);
+      })]);
+    } finally {
+      expired = true;
+      clearTimeout(openingTimer);
+    }
+    const activeTrack = state.stream.getVideoTracks()[0];
+    state.activeDeviceId = activeTrack.getSettings?.()?.deviceId || deviceId || '';
+    nativeCaptureDisabled = false;
+    activeTrack.addEventListener('ended', () => {
+      if (state.stream?.getVideoTracks()[0] !== activeTrack) return;
+      updateCameraControls();
+      setStatus('Camera stopped', 'error');
+      liveHint.textContent = translate('cameraUnavailable');
+    });
+    video.srcObject = state.stream;
+    await video.play();
+    await listVideoDevices();
+    const activeIndex = state.devices.findIndex((device) => device.deviceId === state.activeDeviceId);
+    if (activeIndex >= 0) {
+      state.currentDeviceIndex = activeIndex;
+    }
+    updateZoomControl();
+    if (!deviceInfoPanel.classList.contains('hidden')) {
+      renderDeviceInfo();
+    }
+    if (state.zoom !== 1) {
+      await applyZoom(state.zoom);
+    }
+    pendingZoom = state.zoom;
+    setGuideAspect();
+    setStatus('Camera Ready', 'active');
+    liveHint.textContent = translate('alignCapture');
+  } catch (error) {
+    await stopCamera();
+    throw error;
+  } finally {
+    state.cameraOpening = false;
+    updateCameraControls();
   }
-  updateZoomControl();
-  if (!deviceInfoPanel.classList.contains('hidden')) {
-    renderDeviceInfo();
-  }
-  if (state.zoom !== 1) {
-    await applyZoom(state.zoom);
-  }
-  captureBtn.disabled = false;
-  setStatus('Camera Ready', 'active');
-  liveHint.textContent = translate('alignCapture');
 }
 
 function nextDeviceId() {
@@ -522,42 +652,52 @@ function getSourceCropRect(sourceWidth, sourceHeight) {
   };
 }
 
-function getCenterCropRect(sourceWidth, sourceHeight) {
-  const targetAspect = getRatioAspect();
-  const sourceAspect = sourceWidth / sourceHeight;
-  let cropWidth = sourceWidth;
-  let cropHeight = sourceHeight;
-
-  if (sourceAspect > targetAspect) {
-    cropWidth = sourceHeight * targetAspect;
-  } else if (sourceAspect < targetAspect) {
-    cropHeight = sourceWidth / targetAspect;
-  }
-
-  return {
-    offsetX: (sourceWidth - cropWidth) / 2,
-    offsetY: (sourceHeight - cropHeight) / 2,
-    cropWidth,
-    cropHeight
-  };
-}
-
 async function captureNativePhoto() {
   const track = state.stream?.getVideoTracks()[0];
-  if (!track || typeof window.ImageCapture !== 'function' || typeof window.createImageBitmap !== 'function') {
+  if (nativeCaptureDisabled || !track || typeof window.ImageCapture !== 'function' || typeof window.createImageBitmap !== 'function') {
     return null;
   }
 
+  let expired = false;
+  let timer;
   try {
     const imageCapture = new window.ImageCapture(track);
-    const photoBlob = await imageCapture.takePhoto();
-    const bitmap = await window.createImageBitmap(photoBlob);
-    return bitmap;
+    const capture = (async () => {
+      let options;
+      try {
+        const capabilities = await imageCapture.getPhotoCapabilities();
+        if (Number.isFinite(capabilities.imageWidth?.max)) {
+          options = { imageWidth: capabilities.imageWidth.max };
+        }
+      } catch { /* Some cameras only support the default photo size. */ }
+      if (expired) return null;
+      let blob;
+      try {
+        blob = await imageCapture.takePhoto(options);
+      } catch (error) {
+        if (!options || expired) throw error;
+        blob = await imageCapture.takePhoto();
+      }
+      if (expired) return null;
+      const bitmap = await window.createImageBitmap(blob);
+      if (expired) {
+        bitmap.close();
+        return null;
+      }
+      return bitmap;
+    })();
+    return await Promise.race([capture, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Photo capture timed out')), 8000);
+    })]);
   } catch (error) {
     // Some Android camera implementations expose ImageCapture but reject
     // takePhoto. The video stream remains a reliable fallback.
     console.warn('Native photo capture unavailable, using video frame', error);
+    nativeCaptureDisabled = true;
     return null;
+  } finally {
+    expired = true;
+    clearTimeout(timer);
   }
 }
 
@@ -570,18 +710,14 @@ function drawFrameToCanvas(source = video, sourceWidth = video.videoWidth, sourc
   const crop = cropRect || getSourceCropRect(sourceWidth, sourceHeight);
   const { offsetX, offsetY, cropWidth, cropHeight } = crop;
 
-  // Export at approximately 1080p even when Chrome provides a lower
-  // preview stream such as 720x1440. The crop coordinates remain based on
-  // the real camera frame, so this only improves output dimensions.
-  const targetLongSide = 1920;
-  const scale = targetLongSide / Math.max(cropWidth, cropHeight);
-  const targetWidth = Math.max(1, Math.round(cropWidth * scale));
-  const targetHeight = Math.max(1, Math.round(cropHeight * scale));
+  const { width: targetWidth, height: targetHeight } = getResolutionPreset();
 
   canvas.width = targetWidth;
   canvas.height = targetHeight;
 
   const context = canvas.getContext('2d', { alpha: false, willReadFrequently: false });
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
   context.drawImage(
     source,
     offsetX,
@@ -594,7 +730,8 @@ function drawFrameToCanvas(source = video, sourceWidth = video.videoWidth, sourc
     targetHeight
   );
 
-  return { width: targetWidth, height: targetHeight };
+  return { width: targetWidth, height: targetHeight,
+    enlarged: cropWidth + 1 < targetWidth || cropHeight + 1 < targetHeight };
 }
 
 function canvasToBlob(quality) {
@@ -610,31 +747,30 @@ function canvasToBlob(quality) {
 }
 
 async function compressCapture() {
+  // Freeze the fallback before awaiting the native shutter. Layout and
+  // zoom are locked until the final JPEG is ready.
+  const sourceWidth = video.videoWidth;
+  const sourceHeight = video.videoHeight;
+  const crop = getSourceCropRect(sourceWidth, sourceHeight);
+  let frameSize = drawFrameToCanvas(video, sourceWidth, sourceHeight, crop);
+  let sourceLabel = translate('videoPhoto');
+  let sourceSize = `${sourceWidth}x${sourceHeight}`;
   const nativePhoto = await captureNativePhoto();
-  let frameSize;
-
   if (nativePhoto) {
-    frameSize = drawFrameToCanvas(
-      nativePhoto,
-      nativePhoto.width,
-      nativePhoto.height,
-      getCenterCropRect(nativePhoto.width, nativePhoto.height)
-    );
-    nativePhoto.close();
-  } else {
-    frameSize = drawFrameToCanvas();
+    try {
+      const mapped = CaptureUtils.mapCrop(crop, sourceWidth, sourceHeight, nativePhoto.width, nativePhoto.height);
+      if (mapped && mapped.cropWidth >= crop.cropWidth && mapped.cropHeight >= crop.cropHeight) {
+        frameSize = drawFrameToCanvas(nativePhoto, nativePhoto.width, nativePhoto.height, mapped);
+        sourceLabel = translate('nativePhoto');
+        sourceSize = `${nativePhoto.width}x${nativePhoto.height}`;
+      }
+    } finally {
+      nativePhoto.close();
+    }
   }
 
   const { width, height } = frameSize;
-  let blob = await canvasToBlob(0.82);
-
-  if (blob.size > 320 * 1024) {
-    blob = await canvasToBlob(0.72);
-  }
-
-  if (blob.size > 260 * 1024) {
-    blob = await canvasToBlob(0.64);
-  }
+  const blob = await canvasToBlob(state.quality);
 
   if (state.previewUrl) {
     URL.revokeObjectURL(state.previewUrl);
@@ -643,7 +779,8 @@ async function compressCapture() {
   state.previewUrl = URL.createObjectURL(blob);
   preview.src = state.previewUrl;
   captureStats.textContent = `${width}x${height} | ${formatBytes(blob.size)}`;
-  serverResult.textContent = 'Review photo before upload';
+  captureSource.textContent = `${sourceLabel} ${sourceSize}${frameSize.enlarged ? ` | ${translate('enlarged')}` : ''}`;
+  serverResult.textContent = `${translate('reviewPhoto')} | ${state.capturedDestination}`;
 
   return blob;
 }
@@ -652,25 +789,41 @@ async function uploadCapture(blob) {
   const extension = '.jpg';
   const filename = `capture_${Date.now()}${extension}`;
   const formData = new FormData();
-  formData.append('destination', destinationSelect.value);
+  formData.append('destination', state.capturedDestination);
   formData.append('image', blob, filename);
 
-  const response = await fetch('/api/upload', {
+  return fetchJson('/api/upload', {
     method: 'POST',
     body: formData
   });
 
-  const result = await response.json();
-  if (!response.ok) {
-    throw new Error(result.message || 'upload failed');
-  }
+}
 
-  return result;
+async function fetchJson(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 45000);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !result) {
+      throw Object.assign(new Error(result?.message || translate('requestFailed')), { statusCode: response.status });
+    }
+    return result;
+  } catch (error) {
+    if (error.name === 'AbortError' || error instanceof TypeError) {
+      throw new Error(translate(url === '/api/upload' ? 'uploadUncertain' : 'requestFailed'));
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function setGalleryOpen(enabled) {
+  if (enabled && cameraBusy()) return;
   galleryPanel.classList.toggle('hidden', !enabled);
   if (enabled) {
+    galleryDestinationSelect.value = destinationSelect.value;
     setSettingsOpen(false);
     loadGallery();
   }
@@ -688,13 +841,18 @@ function formatGalleryDate(value) {
 function updateGallerySelectionUI() {
   const selectedCount = selectedGalleryImages.size;
   gallerySelectionCount.textContent = selectedCount ? `${selectedCount} ${translate('selected')}` : '';
-  galleryDeleteSelectedBtn.disabled = selectedCount === 0;
+  galleryDeleteSelectedBtn.disabled = galleryDeleting || selectedCount === 0;
+  gallerySelectAllBtn.disabled = galleryDeleting;
+  galleryDestinationSelect.disabled = galleryDeleting;
+  galleryRefreshBtn.disabled = galleryDeleting;
+  for (const control of galleryGrid.querySelectorAll('button, input')) control.disabled = galleryDeleting;
   gallerySelectAllBtn.textContent = galleryImages.length > 0 && selectedCount === galleryImages.length
     ? translate('deselectAll')
     : translate('selectAll');
 }
 
 async function loadGallery() {
+  const requestId = ++galleryRequestId;
   const destination = galleryDestinationSelect.value;
   selectedGalleryImages.clear();
   galleryImages = [];
@@ -703,11 +861,8 @@ async function loadGallery() {
   galleryGrid.replaceChildren();
 
   try {
-    const response = await fetch(`/api/images?destination=${encodeURIComponent(destination)}`);
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.message || 'Unable to load gallery');
-    }
+    const result = await fetchJson(`/api/images?destination=${encodeURIComponent(destination)}`);
+    if (requestId !== galleryRequestId) return;
 
     if (result.images.length === 0) {
       galleryStatus.textContent = 'No images in this folder';
@@ -758,11 +913,12 @@ async function loadGallery() {
     updateGallerySelectionUI();
   } catch (error) {
     console.error(error);
-    galleryStatus.textContent = error.message;
+    if (requestId === galleryRequestId) galleryStatus.textContent = error.message;
   }
 }
 
 async function deleteGalleryImage(destination, filename) {
+  if (galleryDeleting) return;
   if (!window.confirm(`Delete ${filename}?`)) {
     return;
   }
@@ -772,32 +928,46 @@ async function deleteGalleryImage(destination, filename) {
     await loadGallery();
   } catch (error) {
     console.error(error);
+    await loadGallery();
     galleryStatus.textContent = error.message;
   }
 }
 
 async function deleteGalleryImages(destination, filenames) {
-  for (const filename of filenames) {
-    const response = await fetch(
-      `/api/images/${encodeURIComponent(destination)}/${encodeURIComponent(filename)}`,
-      { method: 'DELETE' }
-    );
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.message || 'Unable to delete image');
+  if (galleryDeleting) return;
+  galleryDeleting = true;
+  updateGallerySelectionUI();
+  try {
+    for (const filename of filenames) {
+      try {
+        await fetchJson(`/api/images/${encodeURIComponent(destination)}/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+      } catch (error) {
+        if (error.statusCode !== 404) throw error;
+      }
     }
+  } finally {
+    galleryDeleting = false;
+    updateGallerySelectionUI();
   }
 }
 
 async function handleCapture() {
-  if (state.uploadInFlight) {
+  if (cameraBusy() || state.capturedBlob || state.stream?.getVideoTracks()[0]?.readyState !== 'live') {
     return;
   }
 
-  captureBtn.disabled = true;
+  state.captureInFlight = true;
+  state.capturedDestination = destinationSelect.value;
+  updateCameraControls();
+  setSettingsOpen(false);
+  activePointers.clear();
+  if (zoomFrameRequest) cancelAnimationFrame(zoomFrameRequest);
+  zoomFrameRequest = 0;
   setStatus('Compressing', 'warn');
 
   try {
+    await zoomOperation;
+    if (pendingZoom > 1 && pendingZoom !== state.zoom) await applyZoom(pendingZoom);
     state.capturedBlob = await compressCapture();
     setPreviewMode(true);
     setStatus('Preview', 'warn');
@@ -806,7 +976,8 @@ async function handleCapture() {
     setStatus('Error', 'error');
     liveHint.textContent = error.message;
   } finally {
-    captureBtn.disabled = false;
+    state.captureInFlight = false;
+    updateCameraControls();
   }
 }
 
@@ -819,14 +990,15 @@ async function handleConfirm() {
   confirmBtn.disabled = true;
   cancelBtn.disabled = true;
   setStatus('Uploading', 'warn');
-  serverResult.textContent = 'Uploading';
+  serverResult.textContent = translate('uploading');
+  updateCameraControls();
 
   try {
     const result = await uploadCapture(state.capturedBlob);
     setStatus('Uploaded', 'active');
     serverResult.textContent = `${result.destination} | ${result.filename}`;
-    liveHint.textContent = 'Saved to storage root';
     clearPreview();
+    liveHint.textContent = `${translate('savedTo')} ${result.destination}`;
   } catch (error) {
     console.error(error);
     setStatus('Error', 'error');
@@ -836,7 +1008,7 @@ async function handleConfirm() {
     confirmBtn.disabled = false;
     cancelBtn.disabled = false;
     state.uploadInFlight = false;
-    captureBtn.disabled = false;
+    updateCameraControls();
   }
 }
 
@@ -845,7 +1017,7 @@ confirmBtn.addEventListener('click', handleConfirm);
 cancelBtn.addEventListener('click', () => {
   clearPreview();
   setStatus('Camera Ready', 'active');
-  liveHint.textContent = 'Capture cancelled';
+  liveHint.textContent = translate('captureCancelled');
 });
 
 settingsBtn.addEventListener('click', () => {
@@ -867,8 +1039,9 @@ deviceInfoBtn.addEventListener('click', () => {
 
 languageSelect.addEventListener('change', () => {
   state.language = languageSelect.value === 'th' ? 'th' : 'en';
-  localStorage.setItem('pda-camera-language', state.language);
+  try { localStorage.setItem('pda-camera-language', state.language); } catch { /* Optional preference. */ }
   applyLanguage();
+  if (!deviceInfoPanel.classList.contains('hidden')) renderDeviceInfo();
   if (!galleryPanel.classList.contains('hidden')) {
     loadGallery();
   }
@@ -893,6 +1066,7 @@ gallerySelectAllBtn.addEventListener('click', () => {
   updateGallerySelectionUI();
 });
 galleryDeleteSelectedBtn.addEventListener('click', async () => {
+  if (galleryDeleting) return;
   const filenames = [...selectedGalleryImages];
   if (!filenames.length || !window.confirm(`Delete ${filenames.length} selected image(s)?`)) {
     return;
@@ -905,6 +1079,7 @@ galleryDeleteSelectedBtn.addEventListener('click', async () => {
     await loadGallery();
   } catch (error) {
     console.error(error);
+    await loadGallery();
     galleryStatus.textContent = error.message;
     updateGallerySelectionUI();
   }
@@ -917,9 +1092,10 @@ imageViewer.addEventListener('click', (event) => {
 });
 
 switchBtn.addEventListener('click', async () => {
+  if (cameraBusy() || state.capturedBlob) return;
   try {
     const deviceId = nextDeviceId();
-    await openCamera(deviceId);
+    await openCamera(deviceId, true);
   } catch (error) {
     console.error(error);
     setStatus('Switch Failed', 'error');
@@ -928,32 +1104,28 @@ switchBtn.addEventListener('click', async () => {
 });
 
 resolutionSelect.addEventListener('change', async () => {
+  if (cameraBusy() || state.capturedBlob) return;
   state.selectedResolution = resolutionSelect.value;
-
-  try {
-    await openCamera(state.activeDeviceId);
-    liveHint.textContent = `Resolution set to ${resolutionSelect.value}`;
-  } catch (error) {
-    console.error(error);
-    setStatus('Resolution Failed', 'error');
-    liveHint.textContent = error.message;
-  }
+  savePreferences();
+  liveHint.textContent = `${translate('resolutionChanged')} ${resolutionSelect.value}`;
 });
 
 ratioSelect.addEventListener('change', async () => {
+  if (cameraBusy() || state.capturedBlob) return;
+  const presetIndex = RATIO_PRESETS[state.selectedRatio].indexOf(state.selectedResolution);
   state.selectedRatio = ratioSelect.value;
+  state.selectedResolution = RATIO_PRESETS[state.selectedRatio][Math.max(0, presetIndex)];
   syncResolutionOptions();
   setGuideAspect();
-  liveHint.textContent = `Ratio set to ${ratioSelect.options[ratioSelect.selectedIndex].text}`;
-
-  try {
-    await openCamera(state.activeDeviceId);
-  } catch (error) {
-    console.error(error);
-    setStatus('Ratio Failed', 'error');
-    liveHint.textContent = error.message;
-  }
+  savePreferences();
+  liveHint.textContent = `${translate('ratioChanged')} ${state.selectedRatio} | ${state.selectedResolution}`;
 });
+
+qualitySelect.addEventListener('change', () => {
+  state.quality = Number(qualitySelect.value);
+  savePreferences();
+});
+destinationSelect.addEventListener('change', savePreferences);
 
 zoomSlider.addEventListener('input', () => {
   queueZoom(Number(zoomSlider.value));
@@ -1047,7 +1219,18 @@ document.addEventListener('click', (event) => {
 });
 
 window.addEventListener('load', async () => {
-  const savedLanguage = localStorage.getItem('pda-camera-language');
+  let savedLanguage;
+  try {
+    savedLanguage = localStorage.getItem('pda-camera-language');
+    const saved = JSON.parse(localStorage.getItem('pda-camera-settings') || '{}');
+    if (RATIO_PRESETS[saved.ratio]?.includes(saved.resolution)) {
+      state.selectedRatio = saved.ratio;
+      state.selectedResolution = saved.resolution;
+    }
+    if ([0.9, 0.82, 0.72].includes(saved.quality)) state.quality = saved.quality;
+    if (['Inbound', 'Return', 'Outbound', 'Other'].includes(saved.destination)) destinationSelect.value = saved.destination;
+  } catch { /* Ignore invalid or unavailable saved preferences. */ }
+  qualitySelect.value = String(state.quality);
   if (savedLanguage === 'th' || savedLanguage === 'en') {
     state.language = savedLanguage;
   }
@@ -1071,5 +1254,21 @@ window.addEventListener('load', async () => {
     console.error(error);
     setStatus('Camera Blocked', 'error');
     liveHint.textContent = 'Camera access requires HTTPS or trusted local origin.';
+  }
+});
+
+window.addEventListener('resize', setGuideAspect);
+video.addEventListener('loadedmetadata', setGuideAspect);
+window.addEventListener('pagehide', () => {
+  zoomRevision++;
+  if (zoomFrameRequest) cancelAnimationFrame(zoomFrameRequest);
+  clearTimeout(liveHintFadeTimer);
+  stopCamera();
+});
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted && !state.stream) {
+    openCamera(state.activeDeviceId).catch((error) => {
+      liveHint.textContent = error.message;
+    });
   }
 });
