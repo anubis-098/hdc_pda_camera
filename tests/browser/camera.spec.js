@@ -15,9 +15,10 @@ test('every resolution exports matching JPEG pixels without reopening the camera
       await page.selectOption('#ratioSelect', ratio);
       await page.selectOption('#resolutionSelect', resolution);
       await page.click('#settingsBtn');
+      if (ratio === '9:16') await expect(page.locator('#cropGuide')).toHaveClass(/is-hidden-guide/);
       await page.click('#captureBtn');
       await expect(page.locator('#previewPanel')).toBeVisible();
-      await expect(page.locator('#captureStats')).toContainText(resolution);
+      await expect(page.locator('#captureStats')).toHaveText(resolution.replace('x', ' x '));
       const dimensions = await page.locator('#preview').evaluate(async (img) => {
         await img.decode();
         return `${img.naturalWidth}x${img.naturalHeight}`;
@@ -70,7 +71,7 @@ test('native capture locks controls, closes bitmap and honors the chosen size', 
   await page.click('#captureBtn');
   await expect(page.locator('#switchBtn')).toBeDisabled();
   await expect(page.locator('#confirmBtn')).toBeEnabled();
-  await expect(page.locator('#captureSource')).toContainText('Camera photo');
+  await expect(page.locator('#captureStats')).toHaveText('1080 x 1920');
   expect(await page.evaluate(() => window.nativeCloses)).toBe(1);
 });
 
@@ -85,8 +86,10 @@ test('mismatched native orientation falls back; preferences survive reload', asy
   expect(await page.evaluate(() => state.selectedResolution)).toBe('720x720');
   expect(await page.evaluate(() => state.quality)).toBe(0.72);
   await page.evaluate(() => {
+    window.nativeAttempted = false;
     window.ImageCapture = class {
       async takePhoto() {
+        window.nativeAttempted = true;
         const c = document.createElement('canvas'); c.width = 100; c.height = 300;
         return new Promise((resolve) => c.toBlob(resolve, 'image/jpeg'));
       }
@@ -94,8 +97,8 @@ test('mismatched native orientation falls back; preferences survive reload', asy
   });
   await page.click('#captureBtn');
   await expect(page.locator('#confirmBtn')).toBeEnabled();
-  await expect(page.locator('#captureSource')).toContainText('Video fallback');
-  await expect(page.locator('#captureStats')).toContainText('720x720');
+  expect(await page.evaluate(() => window.nativeAttempted)).toBe(true);
+  await expect(page.locator('#captureStats')).toHaveText('720 x 720');
 });
 
 test('info and settings fit on a phone screen', async ({ page }) => {
@@ -115,10 +118,18 @@ test('a stalled native camera falls back and permits another capture', async ({ 
   });
   await page.click('#captureBtn');
   await expect(page.locator('#confirmBtn')).toBeEnabled({ timeout: 12000 });
-  await expect(page.locator('#captureSource')).toContainText('Video fallback');
+  await expect(page.locator('#captureStats')).toHaveText('1080 x 1920');
   await page.click('#cancelBtn');
   await page.click('#captureBtn');
   await expect(page.locator('#confirmBtn')).toBeEnabled();
+});
+
+test('confirmation only shows image dimensions and review destination', async ({ page }) => {
+  await page.selectOption('#destinationSelect', 'Inbound');
+  await page.click('#captureBtn');
+  await expect(page.locator('#captureStats')).toHaveText('1080 x 1920');
+  await expect(page.locator('#serverResult')).toHaveText('Review photo before upload | Inbound');
+  await expect(page.locator('.preview-meta > div')).toHaveCount(2);
 });
 
 test('rapid zoom changes are serialized and x1 reopens the same device', async ({ page }) => {

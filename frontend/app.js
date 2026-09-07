@@ -39,7 +39,6 @@ const imageViewerCloseBtn = document.getElementById('imageViewerCloseBtn');
 const imageViewerImage = document.getElementById('imageViewerImage');
 const networkStatus = document.getElementById('networkStatus');
 const captureStats = document.getElementById('captureStats');
-const captureSource = document.getElementById('captureSource');
 const serverResult = document.getElementById('serverResult');
 const liveHint = document.getElementById('liveHint');
 const liveControls = document.getElementById('liveControls');
@@ -94,9 +93,6 @@ const translations = {
     qualityBalanced: 'Balanced',
     qualitySmall: 'Smaller file',
     outputHelp: 'The saved image matches the selected size. File size varies with detail.',
-    nativePhoto: 'Camera photo',
-    videoPhoto: 'Video fallback',
-    enlarged: 'Enlarged from a smaller source; detail may be limited.',
     reviewPhoto: 'Review photo before upload',
     savedTo: 'Saved to',
     captureCancelled: 'Capture cancelled',
@@ -142,9 +138,6 @@ const translations = {
     qualityBalanced: 'สมดุล',
     qualitySmall: 'ไฟล์เล็ก',
     outputHelp: 'ภาพที่บันทึกจะตรงกับขนาดที่เลือก ขนาดไฟล์ขึ้นอยู่กับรายละเอียดภาพ',
-    nativePhoto: 'ภาพจากกล้อง',
-    videoPhoto: 'ภาพสำรองจากวิดีโอ',
-    enlarged: 'ขยายจากภาพต้นฉบับที่เล็กกว่า รายละเอียดอาจไม่เต็มความละเอียด',
     reviewPhoto: 'ตรวจสอบภาพก่อนบันทึก',
     savedTo: 'บันทึกไปที่',
     captureCancelled: 'ยกเลิกการถ่ายภาพแล้ว',
@@ -257,7 +250,7 @@ function setGuideAspect() {
   const width = fullFrame ? rect.width : Math.min(Math.max(1, rect.width - 32), Math.max(1, rect.height - 220) * aspect);
   cropGuide.style.width = `${width}px`;
   cropGuide.style.height = `${width / aspect}px`;
-  cropGuide.classList.toggle('is-hidden-guide', fullFrame);
+  cropGuide.classList.toggle('is-hidden-guide', state.selectedRatio === '9:16' || fullFrame);
 }
 
 function savePreferences() {
@@ -379,7 +372,6 @@ function clearPreview() {
   preview.removeAttribute('src');
   captureStats.textContent = 'No image';
   serverResult.textContent = '';
-  captureSource.textContent = '';
   setPreviewMode(false);
   updateCameraControls();
 }
@@ -730,8 +722,7 @@ function drawFrameToCanvas(source = video, sourceWidth = video.videoWidth, sourc
     targetHeight
   );
 
-  return { width: targetWidth, height: targetHeight,
-    enlarged: cropWidth + 1 < targetWidth || cropHeight + 1 < targetHeight };
+  return { width: targetWidth, height: targetHeight };
 }
 
 function canvasToBlob(quality) {
@@ -753,16 +744,12 @@ async function compressCapture() {
   const sourceHeight = video.videoHeight;
   const crop = getSourceCropRect(sourceWidth, sourceHeight);
   let frameSize = drawFrameToCanvas(video, sourceWidth, sourceHeight, crop);
-  let sourceLabel = translate('videoPhoto');
-  let sourceSize = `${sourceWidth}x${sourceHeight}`;
   const nativePhoto = await captureNativePhoto();
   if (nativePhoto) {
     try {
       const mapped = CaptureUtils.mapCrop(crop, sourceWidth, sourceHeight, nativePhoto.width, nativePhoto.height);
       if (mapped && mapped.cropWidth >= crop.cropWidth && mapped.cropHeight >= crop.cropHeight) {
         frameSize = drawFrameToCanvas(nativePhoto, nativePhoto.width, nativePhoto.height, mapped);
-        sourceLabel = translate('nativePhoto');
-        sourceSize = `${nativePhoto.width}x${nativePhoto.height}`;
       }
     } finally {
       nativePhoto.close();
@@ -778,8 +765,7 @@ async function compressCapture() {
 
   state.previewUrl = URL.createObjectURL(blob);
   preview.src = state.previewUrl;
-  captureStats.textContent = `${width}x${height} | ${formatBytes(blob.size)}`;
-  captureSource.textContent = `${sourceLabel} ${sourceSize}${frameSize.enlarged ? ` | ${translate('enlarged')}` : ''}`;
+  captureStats.textContent = `${width} x ${height}`;
   serverResult.textContent = `${translate('reviewPhoto')} | ${state.capturedDestination}`;
 
   return blob;

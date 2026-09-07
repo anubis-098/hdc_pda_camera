@@ -33,11 +33,12 @@ The app requests a 2560 x 1920 live stream as a preference. The browser chooses
 the actual supported stream. It attempts a native still photo using the maximum
 photo width exposed by the camera, then resizes to the selected output dimensions.
 If native capture fails, times out, or returns a different aspect/orientation,
-the already captured video frame is used. Preview shows the source type and size,
-and warns when enlargement was necessary. Enlargement cannot restore missing detail.
+the already captured video frame is used. The confirmation screen only shows the
+saved image dimensions and the selected destination.
 
-The crop guide has the selected aspect ratio, including 9:16 when the display
-does not have that exact shape. It disappears when reviewing the final JPEG.
+The crop guide has the selected aspect ratio for 3:4, 4:3 and 1:1. Ratio 9:16
+uses the full live preview and does not show a red guide. The guide disappears
+when reviewing the final JPEG.
 Native photos use the normalized crop edges from the live frame. Some hardware
 uses a different field of view for stills despite matching aspect ratios; verify
 framing, orientation and zoom on the actual TC22. API capability exposure varies
