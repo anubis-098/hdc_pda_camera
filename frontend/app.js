@@ -106,7 +106,6 @@ const translations = {
   },
   th: {
     saveTo: 'บันทึกที่',
-    inboundFolder: 'รับเข้า',
     cameraSettings: 'ตั้งค่ากล้อง',
     language: 'ภาษา',
     resolution: 'ความละเอียด',
