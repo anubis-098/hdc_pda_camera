@@ -2,6 +2,7 @@ const state = {
   stream: null,
   devices: [],
   currentDeviceIndex: 0,
+  activeDeviceId: '',
   uploadInFlight: false,
   capturedBlob: null,
   previewUrl: '',
@@ -73,6 +74,7 @@ let galleryImages = [];
 const translations = {
   en: {
     saveTo: 'Save to',
+    inboundFolder: 'Inbound',
     returnFolder: 'Return',
     outboundFolder: 'Outbound',
     otherFolder: 'Other',
@@ -104,6 +106,7 @@ const translations = {
   },
   th: {
     saveTo: 'บันทึกที่',
+    inboundFolder: 'รับเข้า',
     cameraSettings: 'ตั้งค่ากล้อง',
     language: 'ภาษา',
     resolution: 'ความละเอียด',
@@ -377,7 +380,7 @@ async function resetCameraZoom() {
   zoomResetInFlight = true;
   state.zoom = 1;
   try {
-    await openCamera(state.devices[state.currentDeviceIndex]?.deviceId);
+    await openCamera(state.activeDeviceId);
   } finally {
     zoomResetInFlight = false;
   }
@@ -437,19 +440,26 @@ async function openCamera(deviceId) {
     video: {
       width: { ideal: cameraPreset.width },
       height: { ideal: cameraPreset.height },
-      aspectRatio: { ideal: 4 / 3 },
-      facingMode: 'environment'
+      aspectRatio: { ideal: 4 / 3 }
     }
   };
 
   if (deviceId) {
     constraints.video.deviceId = { exact: deviceId };
+  } else {
+    constraints.video.facingMode = 'environment';
   }
 
   state.stream = await navigator.mediaDevices.getUserMedia(constraints);
+  const activeTrack = state.stream.getVideoTracks()[0];
+  state.activeDeviceId = activeTrack.getSettings?.().deviceId || deviceId || '';
   video.srcObject = state.stream;
   await video.play();
   await listVideoDevices();
+  const activeIndex = state.devices.findIndex((device) => device.deviceId === state.activeDeviceId);
+  if (activeIndex >= 0) {
+    state.currentDeviceIndex = activeIndex;
+  }
   updateZoomControl();
   if (!deviceInfoPanel.classList.contains('hidden')) {
     renderDeviceInfo();
@@ -467,7 +477,9 @@ function nextDeviceId() {
     return null;
   }
 
-  state.currentDeviceIndex = (state.currentDeviceIndex + 1) % state.devices.length;
+  const activeIndex = state.devices.findIndex((device) => device.deviceId === state.activeDeviceId);
+  const currentIndex = activeIndex >= 0 ? activeIndex : state.currentDeviceIndex;
+  state.currentDeviceIndex = (currentIndex + 1) % state.devices.length;
   return state.devices[state.currentDeviceIndex].deviceId;
 }
 
@@ -511,21 +523,59 @@ function getSourceCropRect(sourceWidth, sourceHeight) {
   };
 }
 
-function drawFrameToCanvas() {
-  const sourceWidth = video.videoWidth;
-  const sourceHeight = video.videoHeight;
+function getCenterCropRect(sourceWidth, sourceHeight) {
+  const targetAspect = getRatioAspect();
+  const sourceAspect = sourceWidth / sourceHeight;
+  let cropWidth = sourceWidth;
+  let cropHeight = sourceHeight;
+
+  if (sourceAspect > targetAspect) {
+    cropWidth = sourceHeight * targetAspect;
+  } else if (sourceAspect < targetAspect) {
+    cropHeight = sourceWidth / targetAspect;
+  }
+
+  return {
+    offsetX: (sourceWidth - cropWidth) / 2,
+    offsetY: (sourceHeight - cropHeight) / 2,
+    cropWidth,
+    cropHeight
+  };
+}
+
+async function captureNativePhoto() {
+  const track = state.stream?.getVideoTracks()[0];
+  if (!track || typeof window.ImageCapture !== 'function' || typeof window.createImageBitmap !== 'function') {
+    return null;
+  }
+
+  try {
+    const imageCapture = new window.ImageCapture(track);
+    const photoBlob = await imageCapture.takePhoto();
+    const bitmap = await window.createImageBitmap(photoBlob);
+    return bitmap;
+  } catch (error) {
+    // Some Android camera implementations expose ImageCapture but reject
+    // takePhoto. The video stream remains a reliable fallback.
+    console.warn('Native photo capture unavailable, using video frame', error);
+    return null;
+  }
+}
+
+function drawFrameToCanvas(source = video, sourceWidth = video.videoWidth, sourceHeight = video.videoHeight, cropRect = null) {
 
   if (!sourceWidth || !sourceHeight) {
     throw new Error('video is not ready');
   }
 
-  const { offsetX, offsetY, cropWidth, cropHeight } = getSourceCropRect(
-    sourceWidth,
-    sourceHeight
-  );
+  const crop = cropRect || getSourceCropRect(sourceWidth, sourceHeight);
+  const { offsetX, offsetY, cropWidth, cropHeight } = crop;
 
-  const maxLongSide = 1920;
-  const scale = Math.min(1, maxLongSide / Math.max(cropWidth, cropHeight));
+  // Export at approximately 1080p even when Chrome provides a lower
+  // preview stream such as 720x1440. The crop coordinates remain based on
+  // the real camera frame, so this only improves output dimensions.
+  const targetLongSide = 1920;
+  const scale = targetLongSide / Math.max(cropWidth, cropHeight);
   const targetWidth = Math.max(1, Math.round(cropWidth * scale));
   const targetHeight = Math.max(1, Math.round(cropHeight * scale));
 
@@ -534,7 +584,7 @@ function drawFrameToCanvas() {
 
   const context = canvas.getContext('2d', { alpha: false, willReadFrequently: false });
   context.drawImage(
-    video,
+    source,
     offsetX,
     offsetY,
     cropWidth,
@@ -561,7 +611,22 @@ function canvasToBlob(quality) {
 }
 
 async function compressCapture() {
-  const { width, height } = drawFrameToCanvas();
+  const nativePhoto = await captureNativePhoto();
+  let frameSize;
+
+  if (nativePhoto) {
+    frameSize = drawFrameToCanvas(
+      nativePhoto,
+      nativePhoto.width,
+      nativePhoto.height,
+      getCenterCropRect(nativePhoto.width, nativePhoto.height)
+    );
+    nativePhoto.close();
+  } else {
+    frameSize = drawFrameToCanvas();
+  }
+
+  const { width, height } = frameSize;
   let blob = await canvasToBlob(0.82);
 
   if (blob.size > 320 * 1024) {
@@ -867,7 +932,7 @@ resolutionSelect.addEventListener('change', async () => {
   state.selectedResolution = resolutionSelect.value;
 
   try {
-    await openCamera(state.devices[state.currentDeviceIndex]?.deviceId);
+    await openCamera(state.activeDeviceId);
     liveHint.textContent = `Resolution set to ${resolutionSelect.value}`;
   } catch (error) {
     console.error(error);
@@ -883,7 +948,7 @@ ratioSelect.addEventListener('change', async () => {
   liveHint.textContent = `Ratio set to ${ratioSelect.options[ratioSelect.selectedIndex].text}`;
 
   try {
-    await openCamera(state.devices[state.currentDeviceIndex]?.deviceId);
+    await openCamera(state.activeDeviceId);
   } catch (error) {
     console.error(error);
     setStatus('Ratio Failed', 'error');

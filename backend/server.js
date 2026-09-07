@@ -45,6 +45,7 @@ const config = {
   port: Number(process.env.PORT || 8090),
   corsOrigin: process.env.CORS_ORIGIN || '*',
   storageRoot: process.env.STORAGE_ROOT || path.join(process.cwd(), 'uploads'),
+  inboundDir: process.env.INBOUND_DIR || 'Inbound',
   returnDir: process.env.RETURN_DIR || 'Return',
   outboundDir: process.env.OUTBOUND_DIR || 'Outbound',
   otherDir: process.env.OTHER_DIR || 'Other',
@@ -76,6 +77,9 @@ function resolveTargetBase(destination) {
 
   if (destination === 'Return') {
     return path.join(config.storageRoot, config.returnDir);
+  }
+  if (destination === 'Inbound') {
+    return path.join(config.storageRoot, config.inboundDir);
   }
   if (destination === 'Outbound') {
     return path.join(config.storageRoot, config.outboundDir);
@@ -187,7 +191,7 @@ app.get('/api/health', async () => ({
   ok: true,
   time: new Date().toISOString(),
   storageRoot: config.storageRoot,
-  destinations: ['Return', 'Outbound', 'Other'],
+  destinations: ['Inbound', 'Return', 'Outbound', 'Other'],
   httpsEnabled: config.httpsEnabled,
   storageAuthConfigured: Boolean(config.storageUsername && config.storagePassword)
 }));
