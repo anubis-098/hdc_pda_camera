@@ -93,47 +93,38 @@ For camera access on Zebra Chrome, prefer:
 - `https://pda-camera.local` through Nginx + trusted certificate
 - Or Chrome dev flag `chrome://flags/#unsafely-treat-insecure-origin-as-secure` only for temporary development
 
-### Docker mode
+### Docker Compose on Windows 11 Pro
 
-1. Create `.env` from `.env.example`
+1. Install Docker Desktop and use Linux containers. Copy `.env.example` to
+   `.env` for a fresh installation. Keep the existing server `.env` when upgrading.
 
-2. Set a storage path that exists on the Docker host and can be bind-mounted:
+2. On the Windows server hosting the `Scanner` share, run this from PowerShell
+   with an account that can run Docker and read `Get-SmbShare`.
 
-```env
-COMPOSE_HTTP_PORT=8083
-BIND_ADDRESS=127.0.0.1
-HDC_TLS_DIRECTORY=D:/HDC-Certificates
-STORAGE_HOST_PATH=/mnt/pda-camera
-INBOUND_DIR=Inbound
-RETURN_DIR=Return
-OUTBOUND_DIR=Outbound
-OTHER_DIR=Other
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\deploy\windows\start.ps1
 ```
 
-`STORAGE_HOST_PATH` is a directory accessible to the Docker host. If the final
-storage is an SMB share, mount it on the Docker host first and set this variable
-to the mounted directory. For a local smoke test, leave it unset and create
-an `uploads` directory in the project if needed. Nginx publishes HTTPS on
-port 8083. See [HTTPS in LAN](#https-in-lan) for certificates and LAN access.
+The script finds the physical path of the local `Scanner` share, checks that
+its `PDA-Camera` subfolder exists, and passes the path to Compose for this run.
+It overrides older storage paths from `.env` without editing the file. If you
+know the physical directory, pass it directly:
 
-3. Start with Docker Compose:
-
-```bash
-docker compose up --build -d
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\deploy\windows\start.ps1 -StoragePath 'D:\Shares\Scanner\PDA-Camera'
 ```
 
-4. Check HTTPS from a device that trusts the CA, using the IP or hostname
-   listed in the server certificate:
+To run plain Compose commands, set `STORAGE_HOST_PATH` in `.env` to the path
+printed by the script, using forward slashes. Docker bind-mounts that folder at
+`/data/uploads` inside the container.
 
-```text
-https://10.84.185.1:8083
+```powershell
+docker compose up -d --build --wait
+docker compose ps
 ```
 
-5. Stop:
-
-```bash
-docker compose down
-```
+3. Check `https://10.84.185.1:8083` from a device that trusts the CA.
+   See [HTTPS in LAN](#https-in-lan) for certificate and network settings.
 
 ## Upload behavior
 
@@ -234,8 +225,8 @@ This is not suitable as the final deployment method.
 
 ## Next practical steps
 
-1. Mount or map the final storage location on the Docker host
-2. Start the app with `docker compose up --build -d`
+1. Identify the physical directory behind the local Windows share
+2. Start the app with `.\deploy\windows\start.ps1`
 3. Verify the server can write to the target storage path
 4. Put Nginx + certificate in front of the app
 5. Test camera permission on Zebra TC22 over Wi-Fi
@@ -248,7 +239,7 @@ test server on 127.0.0.1:18091. Set `PDA_TEST_BROWSER=msedge` to use Edge instea
 Tests use temporary storage, never the configured File Server. Browser tests cover
 every output size, byte-for-byte upload, native fallback, rapid zoom, saved settings,
 Thai notices and viewport bounds. Real TC22 sensor behavior, SOTI trust deployment
-and Ubuntu SMB permissions still need an on-device deployment check.
+and Windows server storage permissions still need an on-device deployment check.
 
 After updating code, run `docker compose up -d --build --wait`.
 `COMPOSE_HTTP_PORT` selects the host port for Nginx HTTPS. The app is

@@ -14,7 +14,7 @@ services:
       STORAGE_ROOT: /data/uploads
     volumes:
       - type: bind
-        source: ${STORAGE_HOST_PATH:-./uploads}
+        source: ${STORAGE_HOST_PATH:?Set STORAGE_HOST_PATH to the local Windows photo folder or run deploy/windows/start.ps1}
         target: /data/uploads
         bind:
           create_host_path: false
