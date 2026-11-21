@@ -7,23 +7,20 @@ const state = {
   captureInFlight: false,
   cameraOpening: false,
   capturedDestination: '',
-  quality: 0.9,
+  quality: 0.82,
   capturedBlob: null,
   previewUrl: '',
   settingsOpen: false,
   language: 'en',
   zoom: 1,
-  selectedResolution: '1080x1920',
-  selectedRatio: '9:16'
+  sizeTier: 'high'
 };
 
-const RATIO_PRESETS = CaptureUtils.presets;
 
 const cameraShell = document.querySelector('.camera-shell');
 const video = document.getElementById('video');
 const canvas = document.getElementById('captureCanvas');
 const preview = document.getElementById('preview');
-const cropGuide = document.getElementById('cropGuide');
 const galleryBtn = document.getElementById('galleryBtn');
 const galleryPanel = document.getElementById('galleryPanel');
 const galleryCloseBtn = document.getElementById('galleryCloseBtn');
@@ -50,8 +47,14 @@ const deviceInfoBtn = document.getElementById('deviceInfoBtn');
 const deviceInfoPanel = document.getElementById('deviceInfoPanel');
 const languageSelect = document.getElementById('languageSelect');
 const destinationSelect = document.getElementById('destinationSelect');
+const addFolderBtn = document.getElementById('addFolderBtn');
+const folderDialog = document.getElementById('folderDialog');
+const folderForm = document.getElementById('folderForm');
+const folderName = document.getElementById('folderName');
+const folderError = document.getElementById('folderError');
+const createFolderBtn = document.getElementById('createFolderBtn');
+const cancelFolderBtn = document.getElementById('cancelFolderBtn');
 const resolutionSelect = document.getElementById('resolutionSelect');
-const ratioSelect = document.getElementById('ratioSelect');
 const qualitySelect = document.getElementById('qualitySelect');
 const zoomSlider = document.getElementById('zoomSlider');
 const zoomValue = document.getElementById('zoomValue');
@@ -81,9 +84,6 @@ let nativeCaptureDisabled = false;
 const translations = {
   en: {
     saveTo: 'Save to',
-    inboundFolder: 'Inbound',
-    returnFolder: 'Return',
-    outboundFolder: 'Outbound',
     otherFolder: 'Other',
     cameraSettings: 'Camera Settings',
     language: 'Language',
@@ -92,16 +92,14 @@ const translations = {
     qualityHigh: 'High clarity',
     qualityBalanced: 'Balanced',
     qualitySmall: 'Smaller file',
-    outputHelp: 'The saved image matches the selected size. File size varies with detail.',
+    outputHelp: 'Photos follow the shape of the live preview. File size varies with detail.',
     reviewPhoto: 'Review photo before upload',
     savedTo: 'Saved to',
     captureCancelled: 'Capture cancelled',
     uploading: 'Uploading',
-    ratioChanged: 'Ratio set to',
     cameraUnavailable: 'Camera unavailable. Tap switch camera to retry.',
     requestFailed: 'Unable to contact the server. Check the connection and try again.',
     uploadUncertain: 'Upload interrupted. Check Gallery before retrying; the image may already be saved.',
-    ratio: 'Ratio',
     gallery: 'Gallery',
     drag: 'Drag',
     alignCapture: 'Align item and tap capture',
@@ -110,6 +108,12 @@ const translations = {
     resolutionFailed: 'Unable to change resolution',
     confirm: 'Confirm',
     cancel: 'Cancel',
+    folderUnavailable: 'Cannot prepare the selected folder. Check storage access.',
+    newFolder: 'New folder',
+    folderName: 'Folder name',
+    createFolder: 'Create',
+    invalidFolder: 'Use a valid folder name that is not reserved.',
+    duplicateFolder: 'This folder already exists.',
     selectAll: 'Select all',
     deselectAll: 'Deselect all',
     deleteSelected: 'Delete selected',
@@ -137,22 +141,26 @@ const translations = {
     qualityHigh: 'คมชัดสูง',
     qualityBalanced: 'สมดุล',
     qualitySmall: 'ไฟล์เล็ก',
-    outputHelp: 'ภาพที่บันทึกจะตรงกับขนาดที่เลือก ขนาดไฟล์ขึ้นอยู่กับรายละเอียดภาพ',
+    outputHelp: 'สัดส่วนภาพที่บันทึกจะตรงกับพรีวิวกล้อง ขนาดไฟล์ขึ้นอยู่กับรายละเอียดภาพ',
     reviewPhoto: 'ตรวจสอบภาพก่อนบันทึก',
     savedTo: 'บันทึกไปที่',
     captureCancelled: 'ยกเลิกการถ่ายภาพแล้ว',
     uploading: 'กำลังส่งภาพ',
-    ratioChanged: 'เปลี่ยนอัตราส่วนเป็น',
     cameraUnavailable: 'กล้องไม่พร้อมใช้งาน กดสลับกล้องเพื่อลองอีกครั้ง',
     requestFailed: 'ติดต่อเซิร์ฟเวอร์ไม่ได้ ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง',
     uploadUncertain: 'การส่งภาพขาดการเชื่อมต่อ ตรวจสอบในรูปภาพก่อนลองใหม่ เพราะอาจบันทึกแล้ว',
-    ratio: 'อัตราส่วน',
     gallery: 'รูปภาพ',
     drag: 'ลากเพื่อปรับ',
     alignCapture: 'จัดตำแหน่งสิ่งของ แล้วกดถ่ายภาพ',
     openingCamera: 'กำลังเปิดกล้อง',
     confirm: 'ยืนยัน',
     cancel: 'ยกเลิก',
+    folderUnavailable: 'เตรียมโฟลเดอร์ที่เลือกไม่ได้ โปรดตรวจสอบการเข้าถึงพื้นที่จัดเก็บ',
+    newFolder: 'สร้างโฟลเดอร์',
+    folderName: 'ชื่อโฟลเดอร์',
+    createFolder: 'สร้าง',
+    invalidFolder: 'กรุณาใช้ชื่อโฟลเดอร์ที่ถูกต้องและไม่ใช่ชื่อสงวน',
+    duplicateFolder: 'มีโฟลเดอร์ชื่อนี้แล้ว',
     selectAll: 'เลือกทั้งหมด',
     deselectAll: 'ยกเลิกการเลือกทั้งหมด',
     deleteSelected: 'ลบที่เลือก',
@@ -227,36 +235,10 @@ function renderDeviceInfo() {
   }
 }
 
-function getResolutionPreset() {
-  return CaptureUtils.outputSize(state.selectedRatio, state.selectedResolution);
-}
-
-function getCameraResolutionPreset() {
-  // Keep one 4:3 sensor framing for every output ratio. The final crop is
-  // handled by the on-screen guide, so changing ratio does not change FOV.
-  return { width: 2560, height: 1920 };
-}
-
-function getRatioAspect() {
-  const [width, height] = state.selectedRatio.split(':').map(Number);
-  return width / height;
-}
-
-function setGuideAspect() {
-  const aspect = getRatioAspect();
-  cameraShell.style.setProperty('--guide-aspect', String(aspect));
-  const rect = video.getBoundingClientRect();
-  const fullFrame = Math.abs(rect.width / rect.height - aspect) < 0.001;
-  const width = fullFrame ? rect.width : Math.min(Math.max(1, rect.width - 32), Math.max(1, rect.height - 220) * aspect);
-  cropGuide.style.width = `${width}px`;
-  cropGuide.style.height = `${width / aspect}px`;
-  cropGuide.classList.toggle('is-hidden-guide', state.selectedRatio === '9:16' || fullFrame);
-}
-
 function savePreferences() {
   try {
     localStorage.setItem('pda-camera-settings', JSON.stringify({
-      ratio: state.selectedRatio, resolution: state.selectedResolution,
+      sizeTier: state.sizeTier,
       quality: state.quality, destination: destinationSelect.value
     }));
   } catch { /* Camera capture also works with storage disabled. */ }
@@ -270,7 +252,7 @@ function updateCameraControls() {
   const busy = cameraBusy();
   const reviewing = Boolean(state.capturedBlob);
   captureBtn.disabled = busy || reviewing || state.stream?.getVideoTracks()[0]?.readyState !== 'live';
-  for (const control of [switchBtn, resolutionSelect, ratioSelect, qualitySelect, destinationSelect, settingsBtn]) {
+  for (const control of [switchBtn, resolutionSelect, qualitySelect, destinationSelect, addFolderBtn, settingsBtn]) {
     control.disabled = busy || reviewing;
   }
   galleryBtn.disabled = busy;
@@ -281,21 +263,13 @@ function updateCameraControls() {
 }
 
 function syncResolutionOptions() {
-  const options = RATIO_PRESETS[state.selectedRatio] || RATIO_PRESETS['9:16'];
-  resolutionSelect.innerHTML = '';
-
-  for (const value of options) {
-    const option = document.createElement('option');
-    option.value = value;
-    option.textContent = value.replace('x', ' x ');
-    resolutionSelect.append(option);
+  const { width, height } = video.getBoundingClientRect();
+  if (!width || !height) return;
+  for (const option of resolutionSelect.options) {
+    const size = CaptureUtils.outputSize(width, height, option.value);
+    option.textContent = `${size.width} x ${size.height}`;
   }
-
-  if (!options.includes(state.selectedResolution)) {
-    state.selectedResolution = options[0];
-  }
-
-  resolutionSelect.value = state.selectedResolution;
+  resolutionSelect.value = state.sizeTier;
 }
 
 function setStatus(text, kind = 'idle') {
@@ -346,11 +320,8 @@ function setPreviewMode(enabled) {
   previewPanel.classList.toggle('hidden', !enabled);
   liveControls.classList.toggle('hidden', enabled);
   liveHint.classList.toggle('hidden', enabled);
-  cropGuide.classList.toggle('hidden', enabled);
   if (enabled) {
     setSettingsOpen(false);
-  } else {
-    setGuideAspect();
   }
 }
 
@@ -358,7 +329,6 @@ function setSettingsOpen(enabled) {
   state.settingsOpen = enabled;
   settingsPanel.classList.toggle('hidden', !enabled);
   settingsBtn.classList.toggle('is-active', enabled);
-  cropGuide.classList.toggle('hidden', enabled && cameraShell.classList.contains('preview-mode'));
 }
 
 function clearPreview() {
@@ -522,13 +492,12 @@ async function openCamera(deviceId, resetZoom = false) {
     liveHint.textContent = translate('openingCamera');
     setSettingsOpen(false);
 
-    const cameraPreset = getCameraResolutionPreset();
 
     const constraints = {
       audio: false,
       video: {
-        width: { ideal: cameraPreset.width },
-        height: { ideal: cameraPreset.height },
+        width: { ideal: 2560 },
+        height: { ideal: 1920 },
         aspectRatio: { ideal: 4 / 3 },
         frameRate: { ideal: 24, max: 30 }
       }
@@ -581,7 +550,6 @@ async function openCamera(deviceId, resetZoom = false) {
       await applyZoom(state.zoom);
     }
     pendingZoom = state.zoom;
-    setGuideAspect();
     setStatus('Camera Ready', 'active');
     liveHint.textContent = translate('alignCapture');
   } catch (error) {
@@ -604,44 +572,14 @@ function nextDeviceId() {
   return state.devices[state.currentDeviceIndex].deviceId;
 }
 
-function getDisplayedVideoContent(videoRect, sourceWidth, sourceHeight) {
-  // CSS object-fit: cover scales the source until it fills the video box,
-  // then hides the overflow from the sides or top/bottom.
-  const scale = Math.max(videoRect.width / sourceWidth, videoRect.height / sourceHeight);
-  const contentWidth = sourceWidth * scale;
-  const contentHeight = sourceHeight * scale;
-
-  return {
-    left: videoRect.left + (videoRect.width - contentWidth) / 2,
-    top: videoRect.top + (videoRect.height - contentHeight) / 2,
-    width: contentWidth,
-    height: contentHeight
-  };
-}
-
-function getSourceCropRect(sourceWidth, sourceHeight) {
-  const videoRect = video.getBoundingClientRect();
-  const content = getDisplayedVideoContent(videoRect, sourceWidth, sourceHeight);
-  const guideIsVisible = !cropGuide.classList.contains('is-hidden-guide');
-  const cropRect = guideIsVisible ? cropGuide.getBoundingClientRect() : videoRect;
-
-  // Map the visible guide edges from screen coordinates into source pixels.
-  const left = Math.max(content.left, Math.min(cropRect.left, content.left + content.width));
-  const top = Math.max(content.top, Math.min(cropRect.top, content.top + content.height));
-  const right = Math.max(left, Math.min(cropRect.right, content.left + content.width));
-  const bottom = Math.max(top, Math.min(cropRect.bottom, content.top + content.height));
-
-  const sourceLeft = (left - content.left) / content.width * sourceWidth;
-  const sourceTop = (top - content.top) / content.height * sourceHeight;
-  const sourceRight = (right - content.left) / content.width * sourceWidth;
-  const sourceBottom = (bottom - content.top) / content.height * sourceHeight;
-
-  return {
-    offsetX: sourceLeft,
-    offsetY: sourceTop,
-    cropWidth: Math.max(1, sourceRight - sourceLeft),
-    cropHeight: Math.max(1, sourceBottom - sourceTop)
-  };
+function getSourceCropRect(viewWidth, viewHeight, sourceWidth, sourceHeight) {
+  // object-fit: cover shows the largest centered crop of the video that fills the preview.
+  return CaptureUtils.fitCrop({
+    offsetX: 0,
+    offsetY: 0,
+    cropWidth: sourceWidth,
+    cropHeight: sourceHeight
+  }, viewWidth / viewHeight);
 }
 
 async function captureNativePhoto() {
@@ -693,16 +631,8 @@ async function captureNativePhoto() {
   }
 }
 
-function drawFrameToCanvas(source = video, sourceWidth = video.videoWidth, sourceHeight = video.videoHeight, cropRect = null) {
-
-  if (!sourceWidth || !sourceHeight) {
-    throw new Error('video is not ready');
-  }
-
-  const crop = cropRect || getSourceCropRect(sourceWidth, sourceHeight);
-  const { offsetX, offsetY, cropWidth, cropHeight } = crop;
-
-  const { width: targetWidth, height: targetHeight } = getResolutionPreset();
+function drawFrameToCanvas(source, crop, { width: targetWidth, height: targetHeight }) {
+  const { offsetX, offsetY, cropWidth, cropHeight } = CaptureUtils.fitCrop(crop, targetWidth / targetHeight);
 
   canvas.width = targetWidth;
   canvas.height = targetHeight;
@@ -721,8 +651,6 @@ function drawFrameToCanvas(source = video, sourceWidth = video.videoWidth, sourc
     targetWidth,
     targetHeight
   );
-
-  return { width: targetWidth, height: targetHeight };
 }
 
 function canvasToBlob(quality) {
@@ -742,21 +670,24 @@ async function compressCapture() {
   // zoom are locked until the final JPEG is ready.
   const sourceWidth = video.videoWidth;
   const sourceHeight = video.videoHeight;
-  const crop = getSourceCropRect(sourceWidth, sourceHeight);
-  let frameSize = drawFrameToCanvas(video, sourceWidth, sourceHeight, crop);
+  const { width: viewWidth, height: viewHeight } = video.getBoundingClientRect();
+  if (!sourceWidth || !sourceHeight || !viewWidth || !viewHeight) throw new Error('video is not ready');
+  const size = CaptureUtils.outputSize(viewWidth, viewHeight, state.sizeTier);
+  const crop = getSourceCropRect(viewWidth, viewHeight, sourceWidth, sourceHeight);
+  drawFrameToCanvas(video, crop, size);
   const nativePhoto = await captureNativePhoto();
   if (nativePhoto) {
     try {
       const mapped = CaptureUtils.mapCrop(crop, sourceWidth, sourceHeight, nativePhoto.width, nativePhoto.height);
       if (mapped && mapped.cropWidth >= crop.cropWidth && mapped.cropHeight >= crop.cropHeight) {
-        frameSize = drawFrameToCanvas(nativePhoto, nativePhoto.width, nativePhoto.height, mapped);
+        drawFrameToCanvas(nativePhoto, mapped, size);
       }
     } finally {
       nativePhoto.close();
     }
   }
 
-  const { width, height } = frameSize;
+  const { width, height } = size;
   const blob = await canvasToBlob(state.quality);
 
   if (state.previewUrl) {
@@ -812,6 +743,26 @@ function setGalleryOpen(enabled) {
     galleryDestinationSelect.value = destinationSelect.value;
     setSettingsOpen(false);
     loadGallery();
+  }
+}
+
+function addFolderOption(name) {
+  for (const select of [destinationSelect, galleryDestinationSelect]) {
+    if (![...select.options].some((option) => option.value === name)) {
+      select.add(new Option(name, name));
+    }
+  }
+}
+
+async function prepareSelectedFolder() {
+  const destination = destinationSelect.value;
+  try {
+    await fetchJson(`/api/folders/${encodeURIComponent(destination)}`, { method: 'PUT' });
+  } catch (error) {
+    console.error(error);
+    if (destinationSelect.value === destination && !state.capturedBlob) {
+      liveHint.textContent = translate('folderUnavailable');
+    }
   }
 }
 
@@ -1089,29 +1040,58 @@ switchBtn.addEventListener('click', async () => {
   }
 });
 
-resolutionSelect.addEventListener('change', async () => {
+resolutionSelect.addEventListener('change', () => {
   if (cameraBusy() || state.capturedBlob) return;
-  state.selectedResolution = resolutionSelect.value;
+  state.sizeTier = resolutionSelect.value;
   savePreferences();
-  liveHint.textContent = `${translate('resolutionChanged')} ${resolutionSelect.value}`;
-});
-
-ratioSelect.addEventListener('change', async () => {
-  if (cameraBusy() || state.capturedBlob) return;
-  const presetIndex = RATIO_PRESETS[state.selectedRatio].indexOf(state.selectedResolution);
-  state.selectedRatio = ratioSelect.value;
-  state.selectedResolution = RATIO_PRESETS[state.selectedRatio][Math.max(0, presetIndex)];
-  syncResolutionOptions();
-  setGuideAspect();
-  savePreferences();
-  liveHint.textContent = `${translate('ratioChanged')} ${state.selectedRatio} | ${state.selectedResolution}`;
+  liveHint.textContent = `${translate('resolutionChanged')} ${resolutionSelect.selectedOptions[0].textContent}`;
 });
 
 qualitySelect.addEventListener('change', () => {
   state.quality = Number(qualitySelect.value);
   savePreferences();
 });
-destinationSelect.addEventListener('change', savePreferences);
+destinationSelect.addEventListener('change', () => {
+  savePreferences();
+  prepareSelectedFolder();
+});
+
+addFolderBtn.addEventListener('click', () => {
+  folderForm.reset();
+  folderError.textContent = '';
+  folderDialog.showModal();
+  folderName.focus();
+});
+cancelFolderBtn.addEventListener('click', () => folderDialog.close());
+folderDialog.addEventListener('cancel', (event) => {
+  if (createFolderBtn.disabled) event.preventDefault();
+});
+folderForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (createFolderBtn.disabled) return;
+  createFolderBtn.disabled = true;
+  cancelFolderBtn.disabled = true;
+  folderName.readOnly = true;
+  folderError.textContent = '';
+  try {
+    const { name } = await fetchJson('/api/folders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: folderName.value })
+    });
+    addFolderOption(name);
+    destinationSelect.value = name;
+    savePreferences();
+    folderDialog.close();
+  } catch (error) {
+    folderError.textContent = error.statusCode === 409 ? translate('duplicateFolder')
+      : error.statusCode === 400 ? translate('invalidFolder') : error.message;
+  } finally {
+    createFolderBtn.disabled = false;
+    cancelFolderBtn.disabled = false;
+    folderName.readOnly = false;
+  }
+});
 
 zoomSlider.addEventListener('input', () => {
   queueZoom(Number(zoomSlider.value));
@@ -1206,15 +1186,13 @@ document.addEventListener('click', (event) => {
 
 window.addEventListener('load', async () => {
   let savedLanguage;
+  let savedDestination;
   try {
     savedLanguage = localStorage.getItem('pda-camera-language');
     const saved = JSON.parse(localStorage.getItem('pda-camera-settings') || '{}');
-    if (RATIO_PRESETS[saved.ratio]?.includes(saved.resolution)) {
-      state.selectedRatio = saved.ratio;
-      state.selectedResolution = saved.resolution;
-    }
+    state.sizeTier = CaptureUtils.restoreSizeTier(saved);
     if ([0.9, 0.82, 0.72].includes(saved.quality)) state.quality = saved.quality;
-    if (['Inbound', 'Return', 'Outbound', 'Other'].includes(saved.destination)) destinationSelect.value = saved.destination;
+    savedDestination = saved.destination;
   } catch { /* Ignore invalid or unavailable saved preferences. */ }
   qualitySelect.value = String(state.quality);
   if (savedLanguage === 'th' || savedLanguage === 'en') {
@@ -1223,9 +1201,16 @@ window.addEventListener('load', async () => {
   applyLanguage();
   setStatus('Ready', 'idle');
   setPreviewMode(false);
-  ratioSelect.value = state.selectedRatio;
   syncResolutionOptions();
-  setGuideAspect();
+
+  try {
+    const { folders } = await fetchJson('/api/folders');
+    folders.forEach(addFolderOption);
+    if (folders.includes(savedDestination)) destinationSelect.value = savedDestination;
+  } catch (error) {
+    console.error(error);
+  }
+  prepareSelectedFolder();
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     setStatus('Unsupported', 'error');
@@ -1243,8 +1228,7 @@ window.addEventListener('load', async () => {
   }
 });
 
-window.addEventListener('resize', setGuideAspect);
-video.addEventListener('loadedmetadata', setGuideAspect);
+window.addEventListener('resize', syncResolutionOptions);
 window.addEventListener('pagehide', () => {
   zoomRevision++;
   if (zoomFrameRequest) cancelAnimationFrame(zoomFrameRequest);

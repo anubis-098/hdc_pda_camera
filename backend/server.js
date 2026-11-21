@@ -62,15 +62,13 @@ function buildApp(overrides = {}) {
     ...overrides
   };
   config.storageRoot = path.resolve(config.storageRoot);
-  const destinationDirs = {
-    Inbound: config.inboundDir, Return: config.returnDir,
-    Outbound: config.outboundDir, Other: config.otherDir
-  };
-  for (const name of Object.values(destinationDirs)) {
-    if (!name || name === '.' || name.includes('..') || /[\\/]/.test(name) || path.isAbsolute(name)) {
-      throw new Error('Storage folder names must be simple directory names');
-    }
+  if (!config.otherDir || config.otherDir === '.' || config.otherDir.includes('..') || /[\\/]/.test(config.otherDir)) {
+    throw new Error('OTHER_DIR must be a simple directory name');
   }
+  const reservedFolders = new Set([
+    'Inbound', 'Return', 'Outbound', 'Other', config.inboundDir, config.returnDir,
+    config.outboundDir, config.otherDir
+  ].map((name) => name.toLowerCase()));
 
   function safeSegment(value) {
     if (typeof value !== 'string') {
@@ -85,9 +83,27 @@ function buildApp(overrides = {}) {
     return trimmed.replace(/[^a-zA-Z0-9._-]/g, '_');
   }
 
-  function resolveTargetBase(destination) {
-    return Object.hasOwn(destinationDirs, destination)
-      ? path.join(config.storageRoot, destinationDirs[destination]) : null;
+  async function folderStats(folderPath) {
+    return fsp.lstat(folderPath).catch((error) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+  }
+
+  async function resolveTargetBase(destination) {
+    const isDefault = destination === 'Other';
+    if (!isDefault && !isCustomFolderName(destination)) return null;
+    const target = path.join(config.storageRoot, isDefault ? config.otherDir : destination);
+    const stats = await folderStats(target);
+    return (stats ? stats.isDirectory() : isDefault) ? target : null;
+  }
+
+  function isCustomFolderName(name) {
+    return typeof name === 'string' && name.length <= 60
+      && /^[\p{L}\p{N}][\p{L}\p{M}\p{N} _().-]*$/u.test(name)
+      && !/[ .]$/.test(name)
+      && !/^(?:ROOT$|CON(?:\.|$)|PRN(?:\.|$)|AUX(?:\.|$)|NUL(?:\.|$)|(?:COM|LPT)[1-9¹²³](?:\.|$))/i.test(name)
+      && !reservedFolders.has(name.toLowerCase());
   }
 
   const imageMimeTypes = {
@@ -97,11 +113,11 @@ function buildApp(overrides = {}) {
     '.webp': 'image/webp'
   };
 
-  function resolveImagePath(destination, filename) {
-    const targetBase = resolveTargetBase(destination);
+  async function resolveImagePath(destination, filename) {
+    const targetBase = await resolveTargetBase(destination);
     const safeFilename = safeSegment(filename);
     const extension = path.extname(filename || '').toLowerCase();
-    if (!targetBase || destination === 'ROOT' || !safeFilename || safeFilename !== filename || !imageMimeTypes[extension]) {
+    if (!targetBase || !safeFilename || safeFilename !== filename || !imageMimeTypes[extension]) {
       return null;
     }
 
@@ -181,7 +197,7 @@ function buildApp(overrides = {}) {
       files: 1,
       fields: 1,
       parts: 2,
-      fieldSize: 100
+      fieldSize: 256
     }
   });
 
@@ -195,15 +211,50 @@ function buildApp(overrides = {}) {
     ok: true,
     time: new Date().toISOString(),
     storageRoot: config.storageRoot,
-    destinations: ['Inbound', 'Return', 'Outbound', 'Other'],
+    destinations: ['Other'],
     httpsEnabled: config.httpsEnabled,
     storageAuthConfigured: Boolean(config.storageUsername && config.storagePassword)
   }));
 
+  app.get('/api/folders', async () => {
+    const entries = await fsp.readdir(config.storageRoot, { withFileTypes: true }).catch((error) => {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    });
+    const folders = entries.filter((entry) => entry.isDirectory() && isCustomFolderName(entry.name))
+      .map((entry) => entry.name).sort((a, b) => a.localeCompare(b));
+    return { folders: ['Other', ...folders] };
+  });
+
+  app.post('/api/folders', async (request, reply) => {
+    const name = typeof request.body?.name === 'string' ? request.body.name.trim().normalize('NFC') : null;
+    if (!isCustomFolderName(name)) {
+      return reply.code(400).send({ ok: false, message: 'Invalid folder name' });
+    }
+    await fsp.mkdir(config.storageRoot, { recursive: true });
+    try {
+      await fsp.mkdir(path.join(config.storageRoot, name));
+    } catch (error) {
+      if (error.code === 'EEXIST') return reply.code(409).send({ ok: false, message: 'Folder already exists' });
+      throw error;
+    }
+    return reply.code(201).send({ name });
+  });
+
+  app.put('/api/folders/:destination', async (request, reply) => {
+    const target = await resolveTargetBase(request.params.destination);
+    if (!target) {
+      return reply.code(400).send({ ok: false, message: 'invalid destination' });
+    }
+
+    if (request.params.destination === 'Other') await fsp.mkdir(target, { recursive: true });
+    return { ok: true };
+  });
+
   app.get('/api/images', async (request, reply) => {
-    const destination = request.query?.destination || 'Return';
-    const targetBase = resolveTargetBase(destination);
-    if (!targetBase || destination === 'ROOT') {
+    const destination = request.query?.destination || 'Other';
+    const targetBase = await resolveTargetBase(destination);
+    if (!targetBase) {
       return reply.code(400).send({ ok: false, message: 'invalid gallery folder' });
     }
 
@@ -223,10 +274,8 @@ function buildApp(overrides = {}) {
         continue;
       }
 
-      const imagePath = resolveImagePath(destination, entry.name);
-      if (!imagePath) {
-        continue;
-      }
+      if (safeSegment(entry.name) !== entry.name) continue;
+      const imagePath = path.join(targetBase, entry.name);
 
       const stats = await fsp.lstat(imagePath).catch((error) => {
         if (error.code === 'ENOENT') return null;
@@ -247,7 +296,7 @@ function buildApp(overrides = {}) {
 
   app.get('/api/images/:destination/:filename', async (request, reply) => {
     const { destination, filename } = request.params;
-    const imagePath = resolveImagePath(destination, filename);
+    const imagePath = await resolveImagePath(destination, filename);
     if (!imagePath) {
       return reply.code(400).send({ ok: false, message: 'invalid image path' });
     }
@@ -268,7 +317,7 @@ function buildApp(overrides = {}) {
 
   app.delete('/api/images/:destination/:filename', async (request, reply) => {
     const { destination, filename } = request.params;
-    const imagePath = resolveImagePath(destination, filename);
+    const imagePath = await resolveImagePath(destination, filename);
     if (!imagePath) {
       return reply.code(400).send({ ok: false, message: 'invalid image path' });
     }
@@ -322,12 +371,13 @@ function buildApp(overrides = {}) {
         if (part.file.truncated) throw Object.assign(new Error('file too large'), { statusCode: 413 });
       }
       if (!tempPath) throw invalid('image is required');
-      const targetBase = resolveTargetBase(destination);
+      const targetBase = await resolveTargetBase(destination);
       if (!targetBase) throw invalid('invalid destination');
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `${timestamp}__${destination}__${randomUUID()}.jpg`;
+      const label = destination === 'Other' ? '__Other' : '';
+      const filename = `${timestamp}${label}__${randomUUID()}.jpg`;
       const outputPath = path.join(targetBase, filename);
-      await fsp.mkdir(targetBase, { recursive: true });
+      if (destination === 'Other') await fsp.mkdir(targetBase, { recursive: true });
       await fsp.rename(tempPath, outputPath);
       tempPath = null;
       return reply.code(201).send({ ok: true, filename, destination, size: bytes });

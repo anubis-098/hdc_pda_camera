@@ -1,5 +1,4 @@
 const { test, expect } = require('@playwright/test');
-const { presets } = require('../../frontend/capture-utils');
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => { window.ImageCapture = undefined; });
@@ -8,27 +7,56 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('every resolution exports matching JPEG pixels without reopening the camera', async ({ page }) => {
-  const originalTrack = await page.evaluate(() => state.stream.getVideoTracks()[0].id);
-  for (const [ratio, resolutions] of Object.entries(presets)) {
-    for (const resolution of resolutions) {
-      await page.click('#settingsBtn');
-      await page.selectOption('#ratioSelect', ratio);
-      await page.selectOption('#resolutionSelect', resolution);
-      await page.click('#settingsBtn');
-      if (ratio === '9:16') await expect(page.locator('#cropGuide')).toHaveClass(/is-hidden-guide/);
-      await page.click('#captureBtn');
-      await expect(page.locator('#previewPanel')).toBeVisible();
-      await expect(page.locator('#captureStats')).toHaveText(resolution.replace('x', ' x '));
-      const dimensions = await page.locator('#preview').evaluate(async (img) => {
-        await img.decode();
-        return `${img.naturalWidth}x${img.naturalHeight}`;
-      });
-      expect(dimensions).toBe(resolution);
-      await expect(page.locator('#cropGuide')).toBeHidden();
-      await page.click('#cancelBtn');
-    }
+  const originalTrack = await page.evaluate(() => {
+    const context = document.querySelector('#captureCanvas').getContext('2d', { alpha: false });
+    const originalDraw = context.drawImage;
+    context.drawImage = function (source, x, y, width, height, left, top, targetWidth, targetHeight) {
+      window.captureScale = [targetWidth / width, targetHeight / height];
+      return originalDraw.call(this, source, x, y, width, height, left, top, targetWidth, targetHeight);
+    };
+    return state.stream.getVideoTracks()[0].id;
+  });
+  for (const [tier, resolution] of Object.entries({ high: '960x1920', medium: '640x1280', small: '512x1024' })) {
+    await page.click('#settingsBtn');
+    await expect(page.locator('#ratioSelect')).toHaveCount(0);
+    await page.selectOption('#resolutionSelect', tier);
+    await page.click('#settingsBtn');
+    await page.click('#captureBtn');
+    await expect(page.locator('#previewPanel')).toBeVisible();
+    await expect(page.locator('#captureStats')).toHaveText(resolution.replace('x', ' x '));
+    const dimensions = await page.locator('#preview').evaluate(async (img) => {
+      await img.decode();
+      return `${img.naturalWidth}x${img.naturalHeight}`;
+    });
+    expect(dimensions).toBe(resolution);
+    const [scaleX, scaleY] = await page.evaluate(() => window.captureScale);
+    expect(scaleX).toBeCloseTo(scaleY, 8);
+    await page.click('#cancelBtn');
   }
   expect(await page.evaluate(() => state.stream.getVideoTracks()[0].id)).toBe(originalTrack);
+});
+
+test('Other is the single default and custom folder works after reload', async ({ page }) => {
+  const destination = page.locator('#destinationSelect');
+  expect(await destination.locator('option').allTextContents()).toEqual(['Other']);
+  const name = 'งานคลัง 1';
+  await page.locator('#addFolderBtn').click();
+  await page.locator('#folderName').fill(name);
+  await page.locator('#createFolderBtn').click();
+  await expect(destination).toHaveValue(name);
+  await page.locator('#captureBtn').click();
+  const upload = page.waitForResponse((response) => response.url().endsWith('/api/upload'));
+  await page.locator('#confirmBtn').click();
+  const response = await upload;
+  expect(response.status()).toBe(201);
+  const saved = await response.json();
+  expect(saved.destination).toBe(name);
+
+  await page.reload();
+  await expect(destination).toHaveValue(name);
+  await page.locator('#galleryBtn').click();
+  await expect(page.locator('#galleryDestinationSelect')).toHaveValue(name);
+  await expect(page.locator('#galleryGrid').getByAltText(saved.filename)).toBeVisible();
 });
 
 test('preview bytes are the bytes uploaded to the captured destination', async ({ page, request }) => {
@@ -71,19 +99,18 @@ test('native capture locks controls, closes bitmap and honors the chosen size', 
   await page.click('#captureBtn');
   await expect(page.locator('#switchBtn')).toBeDisabled();
   await expect(page.locator('#confirmBtn')).toBeEnabled();
-  await expect(page.locator('#captureStats')).toHaveText('1080 x 1920');
+  await expect(page.locator('#captureStats')).toHaveText('960 x 1920');
   expect(await page.evaluate(() => window.nativeCloses)).toBe(1);
 });
 
 test('mismatched native orientation falls back; preferences survive reload', async ({ page }) => {
   await page.click('#settingsBtn');
-  await page.selectOption('#ratioSelect', '1:1');
-  await page.selectOption('#resolutionSelect', '720x720');
+  await page.selectOption('#resolutionSelect', 'small');
   await page.selectOption('#qualitySelect', '0.72');
   await page.click('#settingsBtn');
   await page.reload();
   await expect(page.locator('#captureBtn')).toBeEnabled();
-  expect(await page.evaluate(() => state.selectedResolution)).toBe('720x720');
+  expect(await page.evaluate(() => state.sizeTier)).toBe('small');
   expect(await page.evaluate(() => state.quality)).toBe(0.72);
   await page.evaluate(() => {
     window.nativeAttempted = false;
@@ -98,7 +125,7 @@ test('mismatched native orientation falls back; preferences survive reload', asy
   await page.click('#captureBtn');
   await expect(page.locator('#confirmBtn')).toBeEnabled();
   expect(await page.evaluate(() => window.nativeAttempted)).toBe(true);
-  await expect(page.locator('#captureStats')).toHaveText('720 x 720');
+  await expect(page.locator('#captureStats')).toHaveText('512 x 1024');
 });
 
 test('info and settings fit on a phone screen', async ({ page }) => {
@@ -118,17 +145,17 @@ test('a stalled native camera falls back and permits another capture', async ({ 
   });
   await page.click('#captureBtn');
   await expect(page.locator('#confirmBtn')).toBeEnabled({ timeout: 12000 });
-  await expect(page.locator('#captureStats')).toHaveText('1080 x 1920');
+  await expect(page.locator('#captureStats')).toHaveText('960 x 1920');
   await page.click('#cancelBtn');
   await page.click('#captureBtn');
   await expect(page.locator('#confirmBtn')).toBeEnabled();
 });
 
 test('confirmation only shows image dimensions and review destination', async ({ page }) => {
-  await page.selectOption('#destinationSelect', 'Inbound');
+  await page.selectOption('#destinationSelect', 'Other');
   await page.click('#captureBtn');
-  await expect(page.locator('#captureStats')).toHaveText('1080 x 1920');
-  await expect(page.locator('#serverResult')).toHaveText('Review photo before upload | Inbound');
+  await expect(page.locator('#captureStats')).toHaveText('960 x 1920');
+  await expect(page.locator('#serverResult')).toHaveText('Review photo before upload | Other');
   await expect(page.locator('.preview-meta > div')).toHaveCount(2);
 });
 
@@ -166,24 +193,25 @@ test('rapid zoom changes are serialized and x1 reopens the same device', async (
 test('Thai resolution notice fades and a new message reappears', async ({ page }) => {
   await page.click('#settingsBtn');
   await page.selectOption('#languageSelect', 'th');
-  await page.selectOption('#resolutionSelect', '720x1280');
-  await expect(page.locator('#liveHint')).toContainText('เปลี่ยนความละเอียดเป็น 720x1280');
+  await page.selectOption('#resolutionSelect', 'medium');
+  await expect(page.locator('#liveHint')).toContainText('เปลี่ยนความละเอียดเป็น 640 x 1280');
   await expect(page.locator('.overlay-message')).toHaveCSS('opacity', '0', { timeout: 6000 });
-  await page.selectOption('#resolutionSelect', '1080x1920');
+  await page.selectOption('#resolutionSelect', 'high');
   await expect(page.locator('.overlay-message')).toHaveCSS('opacity', '1');
 });
 
-test('crop guides stay inside mobile landscape and desktop viewports', async ({ page }) => {
-  for (const size of [{ width: 360, height: 720 }, { width: 786, height: 393 }, { width: 1280, height: 900 }]) {
-    await page.setViewportSize(size);
-    await page.click('#settingsBtn');
-    await page.selectOption('#ratioSelect', '4:3');
-    await page.click('#settingsBtn');
-    const bounds = await page.locator('#cropGuide').boundingBox();
-    expect(bounds.x).toBeGreaterThanOrEqual(0);
-    expect(bounds.y).toBeGreaterThanOrEqual(0);
-    expect(bounds.x + bounds.width).toBeLessThanOrEqual(size.width);
-    expect(bounds.y + bounds.height).toBeLessThanOrEqual(size.height);
-    expect(bounds.width / bounds.height).toBeCloseTo(4 / 3, 2);
+test('saved JPEG follows the visible camera in portrait, landscape and desktop', async ({ page }) => {
+  const track = await page.evaluate(() => state.stream.getVideoTracks()[0].id);
+  for (const [viewport, expected] of [
+    [{ width: 360, height: 720 }, '960 x 1920'],
+    [{ width: 786, height: 393 }, '1920 x 1397'],
+    [{ width: 1280, height: 900 }, '1152 x 1920']
+  ]) {
+    await page.setViewportSize(viewport);
+    await expect(page.locator('#resolutionSelect option[value=high]')).toHaveText(expected);
+    await page.locator('#captureBtn').click();
+    await expect(page.locator('#captureStats')).toHaveText(expected);
+    await page.locator('#cancelBtn').click();
   }
+  expect(await page.evaluate(() => state.stream.getVideoTracks()[0].id)).toBe(track);
 });

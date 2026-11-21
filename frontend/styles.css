@@ -10,7 +10,6 @@
   --capture: #bf3b23;
   --surface: #111111;
   --surface-2: #ffffff;
-  --guide-aspect: 0.5625;
   --shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
 }
 
@@ -65,36 +64,12 @@ body {
   background: #000;
 }
 
-.crop-guide {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  z-index: 2;
-  width: min(calc(100vw - 56px), calc((100dvh - 210px) * var(--guide-aspect)));
-  aspect-ratio: var(--guide-aspect);
-  transform: translate(-50%, -50%);
-  border: 2px solid rgba(238, 76, 76, 0.95);
-  border-radius: 0;
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.28);
-  pointer-events: none;
-}
-
-.crop-guide.is-hidden-guide {
-  opacity: 0;
-  box-shadow: none;
-  border-color: transparent;
-}
-
 .preview-mode #preview {
   display: block;
 }
 
 .preview-mode #video {
   opacity: 0;
-}
-
-.preview-mode .crop-guide {
-  display: none !important;
 }
 
 .preview-mode .zoom-overlay {
@@ -584,8 +559,9 @@ body {
 
 .destination-chip {
   display: grid;
-  gap: 2px;
-  min-width: 142px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 6px;
+  min-width: 0;
   padding: 7px 10px;
   border-radius: 16px;
 }
@@ -593,6 +569,57 @@ body {
 .destination-chip label {
   font-size: 11px;
   color: var(--muted);
+}
+
+#addFolderBtn {
+  grid-area: 1 / 2 / 3 / 3;
+  align-self: center;
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  font-size: 24px;
+}
+
+#folderDialog {
+  width: min(360px, 90vw);
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+#folderDialog::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+
+#folderDialog input {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px;
+  font: inherit;
+  font-size: 16px;
+}
+
+#folderError {
+  color: #ffadad;
+}
+
+.folder-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.folder-actions .btn {
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 10px;
+}
+
+#createFolderBtn {
+  background: #0d6c5a;
 }
 
 .destination-chip select {
@@ -753,9 +780,5 @@ body {
   .camera-shell {
     max-width: 540px;
     margin: 0 auto;
-  }
-
-  .crop-guide {
-    width: min(calc(540px - 56px), calc((100dvh - 210px) * var(--guide-aspect)));
   }
 }

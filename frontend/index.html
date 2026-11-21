@@ -13,18 +13,15 @@
         <video id="video" playsinline autoplay muted></video>
         <canvas id="captureCanvas" hidden></canvas>
         <img id="preview" alt="Preview">
-        <div class="crop-guide" id="cropGuide" aria-hidden="true"></div>
 
         <div class="overlay overlay-top">
           <div id="networkStatus" class="pill" aria-label="Idle" title="Idle">Idle</div>
           <div class="destination-chip">
             <label for="destinationSelect" data-i18n="saveTo">Save to</label>
             <select id="destinationSelect" aria-label="Save image to folder">
-              <option value="Inbound" data-i18n="inboundFolder">Inbound</option>
-              <option value="Return" data-i18n="returnFolder">Return</option>
-              <option value="Outbound" data-i18n="outboundFolder">Outbound</option>
               <option value="Other" data-i18n="otherFolder">Other</option>
             </select>
+            <button id="addFolderBtn" class="btn btn-icon btn-glass" type="button" aria-labelledby="folderDialogTitle">+</button>
           </div>
           <button id="settingsBtn" class="btn btn-icon btn-glass top-icon" type="button" aria-label="Open settings" title="Open settings">
             <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
@@ -76,18 +73,9 @@
             <label class="settings-field">
               <span data-i18n="resolution">Saved image size</span>
               <select id="resolutionSelect">
-                <option value="1080x1920">1080 x 1920</option>
-                <option value="720x1280">720 x 1280</option>
-                <option value="576x1024">576 x 1024</option>
-              </select>
-            </label>
-            <label class="settings-field">
-              <span data-i18n="ratio">Ratio</span>
-              <select id="ratioSelect">
-                <option value="9:16">9 : 16</option>
-                <option value="3:4">3 : 4</option>
-                <option value="4:3">4 : 3</option>
-                <option value="1:1">1 : 1</option>
+                <option value="high">1080 x 1920</option>
+                <option value="medium">720 x 1280</option>
+                <option value="small">576 x 1024</option>
               </select>
             </label>
             <label class="settings-field">
@@ -98,7 +86,7 @@
                 <option value="0.72" data-i18n="qualitySmall">Smaller file</option>
               </select>
             </label>
-            <p class="settings-note" data-i18n="outputHelp">The saved image matches the selected size. File size varies with detail.</p>
+            <p class="settings-note" data-i18n="outputHelp">Photos follow the shape of the live preview. File size varies with detail.</p>
           </div>
         </div>
 
@@ -115,9 +103,6 @@
             </div>
             <div class="gallery-toolbar">
               <select id="galleryDestinationSelect" aria-label="Gallery folder">
-                <option value="Inbound" data-i18n="inboundFolder">Inbound</option>
-                <option value="Return" data-i18n="returnFolder">Return</option>
-                <option value="Outbound" data-i18n="outboundFolder">Outbound</option>
                 <option value="Other" data-i18n="otherFolder">Other</option>
               </select>
               <button id="galleryRefreshBtn" class="btn btn-icon gallery-refresh" type="button" aria-label="Refresh gallery" title="Refresh gallery">
@@ -187,6 +172,18 @@
       </section>
     </main>
 
+    <dialog id="folderDialog" aria-labelledby="folderDialogTitle">
+      <form id="folderForm">
+        <h2 id="folderDialogTitle" data-i18n="newFolder">New folder</h2>
+        <label for="folderName" data-i18n="folderName">Folder name</label>
+        <input id="folderName" type="text" required maxlength="60" autocomplete="off" enterkeyhint="done">
+        <p id="folderError" role="alert"></p>
+        <div class="folder-actions">
+          <button id="cancelFolderBtn" class="btn" type="button" data-i18n="cancel">Cancel</button>
+          <button id="createFolderBtn" class="btn" type="submit" data-i18n="createFolder">Create</button>
+        </div>
+      </form>
+    </dialog>
     <script src="capture-utils.js" defer></script>
     <script src="app.js" defer></script>
   </body>

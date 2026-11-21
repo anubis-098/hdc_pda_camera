@@ -12,7 +12,37 @@ services:
       HOST: 0.0.0.0
       STORAGE_ROOT: /data/uploads
     ports:
-      # Keep the app private; Nginx handles LAN access and HTTPS on the host.
-      - "127.0.0.1:${PORT:-8090}:8090"
+      # Keep direct access private; Nginx handles LAN access and HTTPS.
+      - "127.0.0.1:${COMPOSE_HTTP_PORT:-8083}:8090"
     volumes:
-      - ${STORAGE_HOST_PATH:-./uploads}:/data/uploads
+      - type: bind
+        source: ${STORAGE_HOST_PATH:-./uploads}
+        target: /data/uploads
+        bind:
+          create_host_path: false
+
+  nginx:
+    image: nginx:stable-alpine
+    profiles: [https]
+    restart: unless-stopped
+    depends_on:
+      - pda-camera
+    environment:
+      PDA_HTTPS_HOSTNAME: ${PDA_HTTPS_HOSTNAME:-pda-camera.local}
+      NGINX_ENVSUBST_FILTER: ^PDA_HTTPS_HOSTNAME$
+    ports:
+      - "${PDA_HTTPS_BIND_ADDRESS:-0.0.0.0}:80:80"
+      - "${PDA_HTTPS_BIND_ADDRESS:-0.0.0.0}:443:443"
+    volumes:
+      - type: bind
+        source: ./nginx/default.conf.template
+        target: /etc/nginx/templates/default.conf.template
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${PDA_CERT_DIR:-./certs}
+        target: /etc/nginx/certs
+        read_only: true
+        bind:
+          create_host_path: false

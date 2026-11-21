@@ -1,17 +1,18 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { presets, outputSize, mapCrop } = require('../frontend/capture-utils');
+const { outputSize, restoreSizeTier, mapCrop, fitCrop } = require('../frontend/capture-utils');
 
-test('all output presets have exact pixels and the selected aspect ratio', () => {
-  for (const [ratio, resolutions] of Object.entries(presets)) {
-    const [rw, rh] = ratio.split(':').map(Number);
-    for (const resolution of resolutions) {
-      const size = outputSize(ratio, resolution);
-      assert.equal(`${size.width}x${size.height}`, resolution);
-      assert.equal(size.width / size.height, rw / rh);
-    }
-  }
-  assert.throws(() => outputSize('1:1', '1080x1920'));
+test('output follows the preview shape and rounds to whole pixels', () => {
+  assert.deepEqual(outputSize(393, 786, 'high'), { width: 960, height: 1920 });
+  assert.deepEqual(outputSize(786, 393, 'medium'), { width: 1280, height: 640 });
+  assert.deepEqual(outputSize(393, 800, 'small'), { width: 503, height: 1024 });
+});
+
+test('restores the corresponding size tier for old saved settings', () => {
+  assert.equal(restoreSizeTier({ ratio: '4:3', resolution: '1280x960' }), 'medium');
+  assert.equal(restoreSizeTier({ ratio: '1:1', resolution: '720x720' }), 'small');
+  assert.equal(restoreSizeTier({ sizeTier: 'medium' }), 'medium');
+  assert.equal(restoreSizeTier({ ratio: 'constructor' }), 'high');
 });
 
 test('native crop retains the exact normalized preview edges', () => {
@@ -21,4 +22,13 @@ test('native crop retains the exact normalized preview edges', () => {
   });
   assert.equal(mapCrop({}, 1440, 1080, 3000, 4000), null);
   assert.equal(mapCrop({}, 1440, 1080, 1920, 1080), null);
+});
+
+test('portrait and landscape crops keep their center while matching the output', () => {
+  assert.deepEqual(fitCrop({ offsetX: 10, offsetY: 20, cropWidth: 1600, cropHeight: 900 }, 9 / 16), {
+    offsetX: 556.875, offsetY: 20, cropWidth: 506.25, cropHeight: 900
+  });
+  assert.deepEqual(fitCrop({ offsetX: 10, offsetY: 20, cropWidth: 900, cropHeight: 1600 }, 4 / 3), {
+    offsetX: 10, offsetY: 482.5, cropWidth: 900, cropHeight: 675
+  });
 });

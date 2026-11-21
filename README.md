@@ -8,26 +8,20 @@ Minimal web app for Zebra TC22 camera capture and immediate upload to local stor
 - Compresses the captured image in browser memory with Canvas before upload
 - Shows a full-screen capture preview with `Confirm` and `Cancel` before upload
 - Uploads a single JPEG via `multipart/form-data`
-- Lets the operator choose `Inbound`, `Return`, `Outbound`, or `Other` before capture
+- Defaults to `Other` and lets the operator tap `+` to create and select a named folder
 - Stores the file directly under the selected folder
 - Keeps the UI minimal and camera-first for warehouse workflows
 
 ## Image settings
 
-`Saved image size` controls the exact dimensions of both the preview JPEG and
-the uploaded file. Changing this setting does not restart the camera.
+`Saved image size` lets you choose a longest edge of 1920, 1280, or 1024 pixels.
+The other edge follows the shape of the visible camera preview at capture
+time, rounded to a whole pixel. The dimensions shown in Settings update when
+the preview size changes. Changing image size does not restart the camera.
 
-| Ratio | High | Medium | Small |
-| --- | --- | --- | --- |
-| 9:16 | 1080 x 1920 | 720 x 1280 | 576 x 1024 |
-| 3:4 | 1080 x 1440 | 960 x 1280 | 768 x 1024 |
-| 4:3 | 1440 x 1080 | 1280 x 960 | 1024 x 768 |
-| 1:1 | 1080 x 1080 | 960 x 960 | 720 x 720 |
-
-Image quality is separate: High clarity (default), Balanced, or Smaller file.
+JPEG quality is separate: Balanced (default), High clarity, or Smaller file.
 There is no fixed 200-300 KB guarantee: detailed photos need more bytes.
-Ratio, size, quality, language and destination are remembered on the device.
-Changing ratio preserves the corresponding size tier.
+Size, quality, language and destination are remembered on the device.
 
 The app requests a 2560 x 1920 live stream as a preference. The browser chooses
 the actual supported stream. It attempts a native still photo using the maximum
@@ -36,9 +30,8 @@ If native capture fails, times out, or returns a different aspect/orientation,
 the already captured video frame is used. The confirmation screen only shows the
 saved image dimensions and the selected destination.
 
-The crop guide has the selected aspect ratio for 3:4, 4:3 and 1:1. Ratio 9:16
-uses the full live preview and does not show a red guide. The guide disappears
-when reviewing the final JPEG.
+The app saves the area visible in the live preview and scales it uniformly to
+preserve object proportions.
 Native photos use the normalized crop edges from the live frame. Some hardware
 uses a different field of view for stills despite matching aspect ratios; verify
 framing, orientation and zoom on the actual TC22. API capability exposure varies
@@ -74,7 +67,7 @@ npm install
 
 ```env
 PORT=8090
-STORAGE_ROOT=\\10.84.185.144\hdc\Scanner\PDA
+STORAGE_ROOT=\\CJITADMINSERVER\Scanner\PDA-Camera
 INBOUND_DIR=Inbound
 RETURN_DIR=Return
 OUTBOUND_DIR=Outbound
@@ -107,8 +100,7 @@ For camera access on Zebra Chrome, prefer:
 2. Set a storage path that exists on the Docker host and can be bind-mounted:
 
 ```env
-PORT=8090
-STORAGE_ROOT=/data/uploads
+COMPOSE_HTTP_PORT=8083
 STORAGE_HOST_PATH=/mnt/pda-camera
 INBOUND_DIR=Inbound
 RETURN_DIR=Return
@@ -116,9 +108,11 @@ OUTBOUND_DIR=Outbound
 OTHER_DIR=Other
 ```
 
-`STORAGE_HOST_PATH` is the Ubuntu host path. If the final storage is an SMB share,
-mount it on Ubuntu first, for example at `/mnt/pda-camera`, then use that path.
-The app remains private on `127.0.0.1:8090`; Nginx should proxy to it.
+`STORAGE_HOST_PATH` is a directory accessible to the Docker host. If the final
+storage is an SMB share, mount it on the Docker host first and set this variable
+to the mounted directory. For a local smoke test, leave it unset and create
+an `uploads` directory in the project if needed. The app listens on `127.0.0.1:8083` on the
+host; Nginx should proxy to that address.
 
 3. Start with Docker Compose:
 
@@ -129,7 +123,7 @@ docker compose up --build -d
 4. Open directly for an HTTP smoke test:
 
 ```text
-http://127.0.0.1:8090
+http://127.0.0.1:8083
 ```
 
 5. Stop:
@@ -142,23 +136,26 @@ docker compose down
 
 - API endpoint: `POST /api/upload`
 - Form fields:
-  - `destination`: `Inbound`, `Return`, `Outbound`, or `Other`
+  - `destination`: A folder returned by `GET /api/folders`
   - `image`: JPEG file
 
 Saved file pattern:
 
 ```text
-2026-08-26T10-15-20-123Z__Return__<unique-id>.jpg
+2026-08-26T10-15-20-123Z__Other__<unique-id>.jpg
 ```
 
 Files are stored directly in the selected folder. Dates are in the filenames:
 
 ```text
-<STORAGE_ROOT>\Inbound\...jpg
-<STORAGE_ROOT>\Return\...jpg
-<STORAGE_ROOT>\Outbound\...jpg
 <STORAGE_ROOT>\Other\...jpg
+<STORAGE_ROOT>\<custom folder>\...jpg
 ```
+
+`PUT /api/folders/Other` creates `Other` if needed. `POST /api/folders` with a
+JSON `name` creates a new folder. User-created folders support Thai names and
+spaces. Legacy Inbound, Return and Outbound folders are hidden from the app
+while their files remain on disk.
 
 Both multipart field orders are accepted. A destination is required; `ROOT` is
 not accepted. Uploads must be JPEG and pass basic start/end-marker and size checks
@@ -170,19 +167,39 @@ before retrying because the server may already have saved the image.
 
 ## HTTPS in LAN
 
-### Recommended production-like LAN setup
+### Docker Compose with Nginx
 
-1. Create local CA and certificate with `mkcert`
-2. Trust the CA on Zebra TC22 and operator PCs
-3. Point local DNS or hosts entry to your server
-4. Terminate TLS at Nginx
-5. Proxy to Fastify on `http://127.0.0.1:8090`
+Set these values in the server's `.env`, using the actual DNS name on the
+server certificate. Use forward slashes for the Windows bind-mount path.
 
-Example hostname:
-
-```text
-pda-camera.local
+```env
+PDA_HTTPS_HOSTNAME=pda-camera.local
+PDA_HTTPS_BIND_ADDRESS=0.0.0.0
+PDA_CERT_DIR=D:/HDC-Certificates
+HTTPS_ENABLED=false
 ```
+
+Save the following PEM files in `PDA_CERT_DIR`:
+
+- `pda-camera.pem` contains the server certificate followed by any intermediate
+  certificates. Its Subject Alternative Name must include the hostname used
+  by the PDA.
+- `pda-camera-key.pem` contains the matching server private key. Keep it out of Git.
+
+`D:\HDC-Certificates\hdc-root-ca.cer` is the root CA certificate to trust on
+the Zebra TC22 and operator PCs. Obtain the server certificate and key from
+your CA administrator if you only have the root CA certificate.
+
+Point DNS for `PDA_HTTPS_HOSTNAME` to the Windows server. Start Nginx and the app
+with `docker compose --profile https up -d --build`. Nginx redirects port 80
+to HTTPS on port 443 and proxies to the app over the Compose network. Verify
+the deployment at `https://<PDA_HTTPS_HOSTNAME>/api/health` from a client that
+trusts the CA. For a local-only deployment, set `PDA_HTTPS_BIND_ADDRESS=127.0.0.1`.
+
+If Nginx already runs on the server, use `nginx/nginx.conf.example` as the
+site configuration instead of starting the Compose HTTPS profile. Set the
+hostname and paths to match the server certificate and key. Its upstream is
+`http://127.0.0.1:8083` for Compose or `http://127.0.0.1:8090` for Node.js directly.
 
 ### Temporary development option
 
@@ -204,7 +221,7 @@ This is not suitable as the final deployment method.
 
 - The camera view fills the screen like a mobile camera app
 - Destination and status stay as floating overlays
-- The top destination dropdown selects `Inbound`, `Return`, `Outbound`, or `Other`
+- Use `Other` or tap `+` to create and automatically select a custom folder.
 - After tapping capture, the live stream pauses into a preview screen
 - Tap `Confirm` to upload or `Cancel` to discard and return to live camera
 
@@ -212,7 +229,7 @@ This is not suitable as the final deployment method.
 
 - The backend process or container host must be able to write to the final storage path
 - For Docker, prefer mounting the SMB share on the host first, then bind-mount that host path into the container
-- Example Windows host approach: map `\\10.84.185.144\hdc\Scanner\PDA` to a local drive or mounted folder, then point the container volume to that host path
+- When running Node.js on Windows, use the UNC path `\\CJITADMINSERVER\Scanner\PDA-Camera` directly. The account running Node.js needs write access through both SMB share and NTFS permissions.
 - Inside the container, keep `STORAGE_ROOT=/data/uploads`
 - If the share requires credentials, the host OS or service account must already have access before the container starts
 - In Node mode on Windows, optional `STORAGE_USERNAME` and `STORAGE_PASSWORD` can be used for UNC authentication before writes begin
@@ -225,11 +242,6 @@ This is not suitable as the final deployment method.
 4. Put Nginx + certificate in front of the app
 5. Test camera permission on Zebra TC22 over Wi-Fi
 
-For the current Docker setup, copy `nginx/nginx.conf.example` to the Ubuntu
-Nginx site configuration. It terminates HTTPS on port `443` and proxies to
-`http://127.0.0.1:8090`. Keep `HTTPS_ENABLED=false` in the app `.env` because
-TLS is terminated by Nginx.
-
 ## Verification
 
 Use Node.js 24 (also used by Docker) and run `npm ci` then `npm test`.
@@ -240,8 +252,7 @@ every output size, byte-for-byte upload, native fallback, rapid zoom, saved sett
 Thai notices and viewport bounds. Real TC22 sensor behavior, SOTI trust deployment
 and Ubuntu SMB permissions still need an on-device deployment check.
 
-After updating code on Ubuntu, run `docker compose up -d --build` and reload the
-page. Compose keeps the container on 8090; `PORT` selects the host-side loopback
-port. Match Nginx's upstream to that host port. Existing public HTTPS ports and
-certificates are not changed by this update. The app is designed for the trusted
-warehouse LAN; gallery/delete APIs do not implement user login.
+After updating code, rebuild with the same Compose profile used for deployment.
+`COMPOSE_HTTP_PORT` selects the direct host-side loopback port. The app is
+designed for the trusted warehouse LAN; gallery/delete APIs do not implement
+user login.
