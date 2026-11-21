@@ -15,6 +15,10 @@
         <img id="preview" alt="Preview">
 
         <div class="overlay overlay-top">
+          <label class="remark-field">
+            <span>Remark</span>
+            <input id="remarkInput" type="text" maxlength="60" autocomplete="off" enterkeyhint="done">
+          </label>
           <div id="networkStatus" class="pill" aria-label="Idle" title="Idle">Idle</div>
           <div class="destination-chip">
             <label for="destinationSelect" data-i18n="saveTo">Save to</label>
@@ -136,10 +140,13 @@
 
         <div class="overlay zoom-overlay" id="zoomOverlay">
           <div class="zoom-control" aria-label="Camera zoom control">
-            <button id="zoomValue" class="zoom-toggle" type="button" aria-label="Open zoom control" aria-expanded="false">x1.0</button>
-            <div id="zoomSliderPanel" class="zoom-slider-panel hidden">
-              <input id="zoomSlider" type="range" min="1" max="1" step="0.1" value="1" aria-label="Zoom">
-              <span class="zoom-hint" data-i18n="drag">Drag</span>
+            <button id="zoomValue" class="zoom-toggle" type="button" aria-label="Camera zoom 1×" aria-expanded="false" aria-controls="zoomSliderPanel" disabled>
+              <span id="zoomReadout">1×</span>
+            </button>
+            <div id="zoomSliderPanel" class="zoom-slider-panel" inert>
+              <button id="zoomResetBtn" class="zoom-reset" type="button" aria-label="Reset zoom" title="Reset zoom" disabled>1×</button>
+              <input id="zoomSlider" type="range" min="1" max="1" step="0.1" value="1" aria-label="Zoom" disabled>
+              <span id="zoomLimit" class="zoom-limit" aria-hidden="true">1×</span>
             </div>
           </div>
         </div>

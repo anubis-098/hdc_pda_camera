@@ -59,19 +59,23 @@ test('Other is the single default and custom folder works after reload', async (
   await expect(page.locator('#galleryGrid').getByAltText(saved.filename)).toBeVisible();
 });
 
-test('preview bytes are the bytes uploaded to the captured destination', async ({ page, request }) => {
+test('preview bytes are uploaded with the captured remark and destination', async ({ page, request }) => {
   await page.selectOption('#destinationSelect', 'Other');
+  await page.getByLabel('Remark').fill('รับสินค้า รอบ 1');
   await page.click('#captureBtn');
   await expect(page.locator('#confirmBtn')).toBeEnabled();
   await expect(page.locator('#destinationSelect')).toBeDisabled();
+  await expect(page.locator('#remarkInput')).toBeDisabled();
   const bytes = await page.evaluate(async () => Array.from(new Uint8Array(await state.capturedBlob.arrayBuffer())));
   const response = page.waitForResponse((r) => r.url().endsWith('/api/upload'));
   await page.click('#confirmBtn');
   const result = await (await response).json();
   expect(result.destination).toBe('Other');
-  const image = await request.get(`/api/images/Other/${result.filename}`);
+  expect(result.filename).toMatch(/^\d{8}_รับสินค้า รอบ 1\.jpg$/);
+  const imageUrl = `/api/images/Other/${encodeURIComponent(result.filename)}`;
+  const image = await request.get(imageUrl);
   expect(await image.body()).toEqual(Buffer.from(bytes));
-  await request.delete(`/api/images/Other/${result.filename}`);
+  await request.delete(imageUrl);
 });
 
 test('native capture locks controls, closes bitmap and honors the chosen size', async ({ page }) => {
@@ -159,7 +163,7 @@ test('confirmation only shows image dimensions and review destination', async ({
   await expect(page.locator('.preview-meta > div')).toHaveCount(2);
 });
 
-test('rapid zoom changes are serialized and x1 reopens the same device', async ({ page }) => {
+test('zoom readout follows the latest input, gestures stay continuous, and reset uses the same camera', async ({ page }) => {
   const id = await page.evaluate(() => state.activeDeviceId);
   await page.evaluate(() => {
     const track = state.stream.getVideoTracks()[0];
@@ -167,27 +171,63 @@ test('rapid zoom changes are serialized and x1 reopens the same device', async (
     window.zoomInFlight = 0;
     window.maxZoomInFlight = 0;
     window.appliedZoom = 1;
+    window.pauseZoom = true;
     track.applyConstraints = async (constraints) => {
       window.maxZoomInFlight = Math.max(window.maxZoomInFlight, ++window.zoomInFlight);
-      await new Promise((resolve) => setTimeout(resolve, 80));
-      window.appliedZoom = constraints.advanced[0].zoom;
+      window.requestedZoom = constraints.advanced[0].zoom;
+      if (window.pauseZoom) await new Promise((resolve) => { window.releaseZoom = resolve; });
+      window.appliedZoom = window.requestedZoom;
       window.zoomInFlight--;
     };
     updateZoomControl();
   });
-  await page.evaluate(async () => {
-    queueZoom(2.3);
-    await new Promise((resolve) => setTimeout(resolve, 30));
+
+  const toggle = page.locator('#zoomValue');
+  const slider = page.locator('#zoomSlider');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await slider.press('ArrowRight');
+  await expect.poll(() => page.evaluate(() => window.requestedZoom)).toBe(1.1);
+  await page.evaluate(() => {
     queueZoom(3.1);
-    await new Promise((resolve) => setTimeout(resolve, 30));
     queueZoom(2.7);
+    window.releaseZoom();
+  });
+  await expect.poll(() => page.evaluate(() => window.requestedZoom)).toBe(2.7);
+  await expect(slider).toHaveValue('2.7');
+  await expect(slider).toHaveAttribute('aria-valuetext', '2.7×');
+  await expect(page.locator('#zoomReadout')).toHaveText('2.7×');
+
+  await page.evaluate(() => {
+    window.pauseZoom = false;
+    window.releaseZoom();
   });
   await expect.poll(() => page.evaluate(() => window.appliedZoom)).toBe(2.7);
+
+  await page.evaluate(() => {
+    video.setPointerCapture = () => {};
+    const pointer = (type, pointerId, clientX) => {
+      video.dispatchEvent(new PointerEvent(type, { pointerId, clientX, clientY: 280, pointerType: 'touch' }));
+    };
+    pointer('pointerdown', 1, 100);
+    pointer('pointerdown', 2, 200);
+    pointer('pointermove', 2, 220);
+    pointer('pointerup', 2, 220);
+    pointer('pointermove', 1, 118);
+    pointer('pointerup', 1, 118);
+  });
+  await expect.poll(() => page.evaluate(() => window.appliedZoom)).toBe(3.3);
   expect(await page.evaluate(() => window.maxZoomInFlight)).toBe(1);
-  await page.evaluate(() => resetCameraZoom());
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await slider.press('Escape');
+  await expect(toggle).toBeFocused();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await toggle.click();
+  await page.getByRole('button', { name: 'Reset zoom' }).click();
+  await expect(page.locator('#zoomReadout')).toHaveText('1×');
+  await expect(page.locator('#captureBtn')).toBeEnabled();
   expect(await page.evaluate(() => state.activeDeviceId)).toBe(id);
   expect(await page.evaluate(() => state.zoom)).toBe(1);
-  await expect(page.locator('#captureBtn')).toBeEnabled();
 });
 
 test('Thai resolution notice fades and a new message reappears', async ({ page }) => {

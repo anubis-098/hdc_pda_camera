@@ -70,21 +70,13 @@ function buildApp(overrides = {}) {
     config.outboundDir, config.otherDir
   ].map((name) => name.toLowerCase()));
 
-  function safeSegment(value) {
-    if (typeof value !== 'string') {
-      return null;
-    }
-
-    const trimmed = value.trim();
-    if (!trimmed || trimmed.includes('..') || /[\\/]/.test(trimmed)) {
-      return null;
-    }
-
-    return trimmed.replace(/[^a-zA-Z0-9._-]/g, '_');
+  function isImageFilename(name) {
+    return typeof name === 'string' && name === name.trim() && !name.includes('..')
+      && /^[\p{L}\p{M}\p{N} ._-]+$/u.test(name);
   }
 
-  async function folderStats(folderPath) {
-    return fsp.lstat(folderPath).catch((error) => {
+  async function pathStats(filePath) {
+    return fsp.lstat(filePath).catch((error) => {
       if (error.code === 'ENOENT') return null;
       throw error;
     });
@@ -94,7 +86,7 @@ function buildApp(overrides = {}) {
     const isDefault = destination === 'Other';
     if (!isDefault && !isCustomFolderName(destination)) return null;
     const target = path.join(config.storageRoot, isDefault ? config.otherDir : destination);
-    const stats = await folderStats(target);
+    const stats = await pathStats(target);
     return (stats ? stats.isDirectory() : isDefault) ? target : null;
   }
 
@@ -115,19 +107,55 @@ function buildApp(overrides = {}) {
 
   async function resolveImagePath(destination, filename) {
     const targetBase = await resolveTargetBase(destination);
-    const safeFilename = safeSegment(filename);
+    if (!targetBase || !isImageFilename(filename)) return null;
     const extension = path.extname(filename || '').toLowerCase();
-    if (!targetBase || !safeFilename || safeFilename !== filename || !imageMimeTypes[extension]) {
+    if (!imageMimeTypes[extension]) {
       return null;
     }
 
     const basePath = path.resolve(targetBase);
-    const imagePath = path.resolve(basePath, safeFilename);
+    const imagePath = path.resolve(basePath, filename);
     if (!imagePath.startsWith(`${basePath}${path.sep}`)) {
       return null;
     }
 
     return imagePath;
+  }
+
+  const captureDateFormat = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', year: 'numeric'
+  });
+
+  function fileStem(date, remark) {
+    const day = captureDateFormat.format(date).replaceAll('/', '');
+    const cleaned = remark.trim().normalize('NFC').replace(/\s+/g, ' ')
+      .replace(/[^\p{L}\p{M}\p{N} ._-]+|\.{2,}/gu, '_');
+    const safeRemark = [...cleaned].slice(0, 60).join('').replace(/^[ ._]+|[ ._]+$/g, '');
+    return safeRemark ? `${day}_${safeRemark}` : day;
+  }
+
+  async function commitUpload(tempPath, target, stem, log) {
+    for (let number = 1; ; number++) {
+      const filename = number === 1 ? `${stem}.jpg` : `${stem}_${number}.jpg`;
+      const output = path.join(target, filename);
+      if (await pathStats(output)) continue;
+
+      // Reserve the name across uploads before publishing the complete JPEG.
+      const lock = path.join(target, `.${filename}.lock`);
+      try {
+        await fsp.mkdir(lock);
+      } catch (error) {
+        if (error.code === 'EEXIST') continue;
+        throw error;
+      }
+      try {
+        if (await pathStats(output)) continue;
+        await fsp.rename(tempPath, output);
+        return filename;
+      } finally {
+        await fsp.rmdir(lock).catch((error) => log.error(error, 'Upload name reservation cleanup failed'));
+      }
+    }
   }
 
   function buildHttpsOptions() {
@@ -195,8 +223,8 @@ function buildApp(overrides = {}) {
     limits: {
       fileSize: config.maxFileSizeBytes,
       files: 1,
-      fields: 1,
-      parts: 2,
+      fields: 3,
+      parts: 4,
       fieldSize: 256
     }
   });
@@ -274,7 +302,7 @@ function buildApp(overrides = {}) {
         continue;
       }
 
-      if (safeSegment(entry.name) !== entry.name) continue;
+      if (!isImageFilename(entry.name)) continue;
       const imagePath = path.join(targetBase, entry.name);
 
       const stats = await fsp.lstat(imagePath).catch((error) => {
@@ -335,16 +363,17 @@ function buildApp(overrides = {}) {
 
   app.post('/api/upload', async (request, reply) => {
     let tempPath;
-    let destination;
+    const fields = new Map();
     let bytes = 0;
     const invalid = (message) => Object.assign(new Error(message), { statusCode: 400 });
     try {
       for await (const part of request.parts()) {
         if (part.type === 'field') {
-          if (part.fieldname !== 'destination' || destination !== undefined || part.valueTruncated) {
-            throw invalid('invalid destination field');
+          if (!['destination', 'remark', 'capturedAt'].includes(part.fieldname)
+            || fields.has(part.fieldname) || part.valueTruncated) {
+            throw invalid('invalid upload field');
           }
-          destination = part.value;
+          fields.set(part.fieldname, part.value);
           continue;
         }
         if (tempPath || part.fieldname !== 'image' || part.mimetype !== 'image/jpeg') {
@@ -371,14 +400,16 @@ function buildApp(overrides = {}) {
         if (part.file.truncated) throw Object.assign(new Error('file too large'), { statusCode: 413 });
       }
       if (!tempPath) throw invalid('image is required');
+      const destination = fields.get('destination');
       const targetBase = await resolveTargetBase(destination);
       if (!targetBase) throw invalid('invalid destination');
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const label = destination === 'Other' ? '__Other' : '';
-      const filename = `${timestamp}${label}__${randomUUID()}.jpg`;
-      const outputPath = path.join(targetBase, filename);
+      const capturedAt = fields.get('capturedAt');
+      const date = capturedAt === undefined ? new Date() : new Date(capturedAt);
+      if (!Number.isFinite(date.valueOf()) || (capturedAt !== undefined && date.toISOString() !== capturedAt)) {
+        throw invalid('invalid capture time');
+      }
       if (destination === 'Other') await fsp.mkdir(targetBase, { recursive: true });
-      await fsp.rename(tempPath, outputPath);
+      const filename = await commitUpload(tempPath, targetBase, fileStem(date, fields.get('remark') ?? ''), request.log);
       tempPath = null;
       return reply.code(201).send({ ok: true, filename, destination, size: bytes });
     } finally {

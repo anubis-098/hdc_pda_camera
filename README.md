@@ -131,12 +131,18 @@ docker compose ps
 - API endpoint: `POST /api/upload`
 - Form fields:
   - `destination`: A folder returned by `GET /api/folders`
+  - `remark`: Optional text from the Remark field, up to 60 characters
+  - `capturedAt`: Capture time as an ISO UTC timestamp. If omitted, the server uses the upload time.
   - `image`: JPEG file
 
-Saved file pattern:
+The app uses the Remark value when the shutter is pressed. Filenames use the
+capture date in Bangkok time as `DDMMYYYY_Remark.jpg`. Thai text and spaces
+are supported. Unsupported characters are replaced with underscores. A blank
+remark uses the date alone. Duplicate names get a numeric suffix.
 
 ```text
-2026-08-26T10-15-20-123Z__Other__<unique-id>.jpg
+26082026_Receiving 1.jpg
+26082026_Receiving 1_2.jpg
 ```
 
 Files are stored directly in the selected folder. Dates are in the filenames:
@@ -151,7 +157,7 @@ JSON `name` creates a new folder. User-created folders support Thai names and
 spaces. Legacy Inbound, Return and Outbound folders are hidden from the app
 while their files remain on disk.
 
-Both multipart field orders are accepted. A destination is required; `ROOT` is
+Multipart fields can be supplied in any order. A destination is required; `ROOT` is
 not accepted. Uploads must be JPEG and pass basic start/end-marker and size checks
 (this is not a full image decoder). Files are streamed to temporary `.part` files
 and renamed only after the complete request is validated. Failed requests clean

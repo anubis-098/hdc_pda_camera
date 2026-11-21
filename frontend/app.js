@@ -7,6 +7,7 @@ const state = {
   captureInFlight: false,
   cameraOpening: false,
   capturedDestination: '',
+  captureDetails: null,
   quality: 0.82,
   capturedBlob: null,
   previewUrl: '',
@@ -47,6 +48,7 @@ const deviceInfoBtn = document.getElementById('deviceInfoBtn');
 const deviceInfoPanel = document.getElementById('deviceInfoPanel');
 const languageSelect = document.getElementById('languageSelect');
 const destinationSelect = document.getElementById('destinationSelect');
+const remarkInput = document.getElementById('remarkInput');
 const addFolderBtn = document.getElementById('addFolderBtn');
 const folderDialog = document.getElementById('folderDialog');
 const folderForm = document.getElementById('folderForm');
@@ -58,7 +60,10 @@ const resolutionSelect = document.getElementById('resolutionSelect');
 const qualitySelect = document.getElementById('qualitySelect');
 const zoomSlider = document.getElementById('zoomSlider');
 const zoomValue = document.getElementById('zoomValue');
+const zoomReadout = document.getElementById('zoomReadout');
 const zoomSliderPanel = document.getElementById('zoomSliderPanel');
+const zoomResetBtn = document.getElementById('zoomResetBtn');
+const zoomLimit = document.getElementById('zoomLimit');
 const captureBtn = document.getElementById('captureBtn');
 const switchBtn = document.getElementById('switchBtn');
 const confirmBtn = document.getElementById('confirmBtn');
@@ -101,7 +106,10 @@ const translations = {
     requestFailed: 'Unable to contact the server. Check the connection and try again.',
     uploadUncertain: 'Upload interrupted. Check Gallery before retrying; the image may already be saved.',
     gallery: 'Gallery',
-    drag: 'Drag',
+    zoomControl: 'Camera zoom',
+    zoomReset: 'Reset zoom',
+    zoomFailed: 'Unable to change zoom',
+    zoomResetFailed: 'Unable to reset zoom',
     alignCapture: 'Align item and tap capture',
     openingCamera: 'Opening camera',
     resolutionChanged: 'Resolution set to',
@@ -150,7 +158,10 @@ const translations = {
     requestFailed: 'ติดต่อเซิร์ฟเวอร์ไม่ได้ ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง',
     uploadUncertain: 'การส่งภาพขาดการเชื่อมต่อ ตรวจสอบในรูปภาพก่อนลองใหม่ เพราะอาจบันทึกแล้ว',
     gallery: 'รูปภาพ',
-    drag: 'ลากเพื่อปรับ',
+    zoomControl: 'ซูมกล้อง',
+    zoomReset: 'รีเซ็ตซูม',
+    zoomFailed: 'ปรับซูมไม่ได้',
+    zoomResetFailed: 'รีเซ็ตซูมไม่ได้',
     alignCapture: 'จัดตำแหน่งสิ่งของ แล้วกดถ่ายภาพ',
     openingCamera: 'กำลังเปิดกล้อง',
     confirm: 'ยืนยัน',
@@ -189,6 +200,9 @@ function applyLanguage() {
     element.textContent = translate(element.dataset.i18n);
   }
   languageSelect.value = state.language;
+  zoomResetBtn.setAttribute('aria-label', translate('zoomReset'));
+  zoomResetBtn.title = translate('zoomReset');
+  setZoomDisplay(pendingZoom);
   updateGallerySelectionUI();
 }
 
@@ -251,13 +265,15 @@ function cameraBusy() {
 function updateCameraControls() {
   const busy = cameraBusy();
   const reviewing = Boolean(state.capturedBlob);
-  captureBtn.disabled = busy || reviewing || state.stream?.getVideoTracks()[0]?.readyState !== 'live';
-  for (const control of [switchBtn, resolutionSelect, qualitySelect, destinationSelect, addFolderBtn, settingsBtn]) {
+  const cameraReady = state.stream?.getVideoTracks()[0]?.readyState === 'live';
+  captureBtn.disabled = busy || reviewing || !cameraReady;
+  for (const control of [switchBtn, resolutionSelect, qualitySelect, destinationSelect, remarkInput, addFolderBtn, settingsBtn]) {
     control.disabled = busy || reviewing;
   }
   galleryBtn.disabled = busy;
-  zoomSlider.disabled = busy || reviewing || Number(zoomSlider.max) <= Number(zoomSlider.min);
+  zoomSlider.disabled = busy || reviewing || !cameraReady || Number(zoomSlider.max) <= Number(zoomSlider.min);
   zoomValue.disabled = zoomSlider.disabled;
+  zoomResetBtn.disabled = zoomSlider.disabled || Number(zoomSlider.value) <= Number(zoomSlider.min);
   confirmBtn.disabled = busy || !reviewing;
   cancelBtn.disabled = busy;
 }
@@ -321,6 +337,7 @@ function setPreviewMode(enabled) {
   liveControls.classList.toggle('hidden', enabled);
   liveHint.classList.toggle('hidden', enabled);
   if (enabled) {
+    setZoomExpanded(false);
     setSettingsOpen(false);
   }
 }
@@ -339,6 +356,7 @@ function clearPreview() {
   state.previewUrl = '';
   state.capturedBlob = null;
   state.capturedDestination = '';
+  state.captureDetails = null;
   preview.removeAttribute('src');
   captureStats.textContent = 'No image';
   serverResult.textContent = '';
@@ -382,17 +400,18 @@ function updateZoomControl() {
     state.zoom = 1;
   }
 
-  zoomSlider.disabled = !supportsZoom;
-  zoomSlider.value = String(state.zoom);
-  zoomValue.textContent = `x${Number(state.zoom).toFixed(1)}`;
-  zoomValue.classList.toggle('is-unavailable', !supportsZoom);
-  zoomValue.disabled = !supportsZoom;
+  zoomResetBtn.textContent = formatZoom(Number(zoomSlider.min));
+  zoomLimit.textContent = formatZoom(Number(zoomSlider.max));
+  if (Number(zoomSlider.max) <= Number(zoomSlider.min)) setZoomExpanded(false);
+  setZoomDisplay(state.zoom);
   updateCameraControls();
 }
 
 function setZoomExpanded(expanded) {
-  zoomSliderPanel.classList.toggle('hidden', !expanded);
+  zoomSliderPanel.classList.toggle('is-open', expanded);
+  zoomSliderPanel.inert = !expanded;
   zoomValue.setAttribute('aria-expanded', String(expanded));
+  cameraShell.classList.toggle('zoom-expanded', expanded);
 }
 
 async function applyZoom(zoom) {
@@ -414,7 +433,6 @@ async function applyZoom(zoom) {
   await track.applyConstraints({ ...constraints, advanced: [{ zoom: value }] });
   if (state.stream?.getVideoTracks()[0] !== track) return false;
   state.zoom = value;
-  updateZoomControl();
   return true;
 }
 
@@ -425,18 +443,28 @@ async function resetCameraZoom() {
 
   zoomResetInFlight = true;
   try {
+    setZoomDisplay(Number(zoomSlider.min));
     await openCamera(state.activeDeviceId, true);
   } finally {
     zoomResetInFlight = false;
   }
 }
 
+function formatZoom(value) {
+  return `${Number(value.toFixed(1))}×`;
+}
+
 function setZoomDisplay(value) {
   const min = Number(zoomSlider.min);
   const max = Number(zoomSlider.max);
   const clamped = Math.min(max, Math.max(min, value));
+  const label = formatZoom(clamped);
   zoomSlider.value = String(clamped);
-  zoomValue.textContent = `x${clamped.toFixed(1)}`;
+  zoomSlider.style.setProperty('--zoom-progress', max > min ? `${(clamped - min) / (max - min) * 100}%` : '0%');
+  zoomSlider.setAttribute('aria-valuetext', label);
+  zoomReadout.textContent = label;
+  zoomValue.setAttribute('aria-label', `${translate('zoomControl')} ${label}`);
+  zoomResetBtn.disabled = zoomSlider.disabled || clamped <= min;
 }
 
 function queueZoom(value) {
@@ -452,14 +480,20 @@ function queueZoom(value) {
 
   zoomFrameRequest = requestAnimationFrame(() => {
     zoomFrameRequest = 0;
-    const value = pendingZoom;
     const revision = ++zoomRevision;
     zoomOperation = zoomOperation.then(async () => {
-      if (revision !== zoomRevision || value <= 1 || state.cameraOpening) return;
-      await applyZoom(value);
-    }).catch((error) => {
-      console.error(error);
-      liveHint.textContent = 'Unable to change zoom';
+      const value = pendingZoom;
+      if (revision !== zoomRevision || value <= 1 || value === state.zoom || state.cameraOpening) return;
+      try {
+        await applyZoom(value);
+      } catch (error) {
+        console.error(error);
+        if (revision === zoomRevision && value === pendingZoom) {
+          pendingZoom = state.zoom;
+          setZoomDisplay(pendingZoom);
+          liveHint.textContent = translate('zoomFailed');
+        }
+      }
     });
   });
 }
@@ -550,6 +584,7 @@ async function openCamera(deviceId, resetZoom = false) {
       await applyZoom(state.zoom);
     }
     pendingZoom = state.zoom;
+    setZoomDisplay(pendingZoom);
     setStatus('Camera Ready', 'active');
     liveHint.textContent = translate('alignCapture');
   } catch (error) {
@@ -703,11 +738,11 @@ async function compressCapture() {
 }
 
 async function uploadCapture(blob) {
-  const extension = '.jpg';
-  const filename = `capture_${Date.now()}${extension}`;
   const formData = new FormData();
   formData.append('destination', state.capturedDestination);
-  formData.append('image', blob, filename);
+  formData.append('remark', state.captureDetails.remark);
+  formData.append('capturedAt', state.captureDetails.capturedAt);
+  formData.append('image', blob, 'capture.jpg');
 
   return fetchJson('/api/upload', {
     method: 'POST',
@@ -895,6 +930,7 @@ async function handleCapture() {
 
   state.captureInFlight = true;
   state.capturedDestination = destinationSelect.value;
+  state.captureDetails = { remark: remarkInput.value, capturedAt: new Date().toISOString() };
   updateCameraControls();
   setSettingsOpen(false);
   activePointers.clear();
@@ -950,6 +986,12 @@ async function handleConfirm() {
 }
 
 captureBtn.addEventListener('click', handleCapture);
+remarkInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.isComposing) {
+    event.preventDefault();
+    remarkInput.blur();
+  }
+});
 confirmBtn.addEventListener('click', handleConfirm);
 cancelBtn.addEventListener('click', () => {
   clearPreview();
@@ -1097,24 +1139,23 @@ zoomSlider.addEventListener('input', () => {
   queueZoom(Number(zoomSlider.value));
 });
 
-zoomSlider.addEventListener('change', async () => {
-  setZoomExpanded(false);
-  if (Number(zoomSlider.value) > 1) {
-    return;
-  }
-
+async function handleZoomReset() {
   try {
     await resetCameraZoom();
-    liveHint.textContent = 'Zoom reset to default';
   } catch (error) {
     console.error(error);
-    liveHint.textContent = 'Unable to reset zoom';
+    liveHint.textContent = translate('zoomResetFailed');
   }
+}
+
+zoomResetBtn.addEventListener('click', handleZoomReset);
+zoomSlider.addEventListener('change', () => {
+  if (Number(zoomSlider.value) <= 1) handleZoomReset();
 });
 
 zoomValue.addEventListener('click', () => {
   if (!zoomSlider.disabled) {
-    setZoomExpanded(zoomSliderPanel.classList.contains('hidden'));
+    setZoomExpanded(zoomSliderPanel.inert);
   }
 });
 
@@ -1128,10 +1169,10 @@ video.addEventListener('pointerdown', (event) => {
 
   if (activePointers.size === 1) {
     gestureStartX = event.clientX;
-    gestureStartZoom = state.zoom;
+    gestureStartZoom = pendingZoom;
   } else if (activePointers.size === 2) {
     pinchStartDistance = getPointerDistance();
-    pinchStartZoom = state.zoom;
+    pinchStartZoom = pendingZoom;
   }
   event.preventDefault();
 });
@@ -1152,20 +1193,16 @@ video.addEventListener('pointermove', (event) => {
 });
 
 async function finishZoomGesture(event) {
-  activePointers.delete(event.pointerId);
-  if (activePointers.size !== 0) {
-    return;
+  if (!activePointers.delete(event.pointerId)) return;
+  if (activePointers.size === 1) {
+    gestureStartX = activePointers.values().next().value.x;
+    gestureStartZoom = pendingZoom;
   }
 
-  pinchStartDistance = 0;
-  if (pendingZoom <= 1 && state.zoom > 1) {
-    try {
-      await resetCameraZoom();
-      liveHint.textContent = 'Zoom reset to default';
-    } catch (error) {
-      console.error(error);
-      liveHint.textContent = 'Unable to reset zoom';
-    }
+  if (activePointers.size < 2) pinchStartDistance = 0;
+  if (activePointers.size === 0 && pendingZoom <= 1) {
+    await zoomOperation;
+    if (activePointers.size === 0 && pendingZoom <= 1 && state.zoom > 1) await handleZoomReset();
   }
 }
 
@@ -1173,6 +1210,9 @@ video.addEventListener('pointerup', finishZoomGesture);
 video.addEventListener('pointercancel', finishZoomGesture);
 
 document.addEventListener('click', (event) => {
+  if (!zoomSliderPanel.inert && !zoomValue.contains(event.target) && !zoomSliderPanel.contains(event.target)) {
+    setZoomExpanded(false);
+  }
   if (!state.settingsOpen) {
     return;
   }
@@ -1181,6 +1221,13 @@ document.addEventListener('click', (event) => {
   const clickedSettingsButton = settingsBtn.contains(event.target);
   if (!clickedInsidePanel && !clickedSettingsButton) {
     setSettingsOpen(false);
+  }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !zoomSliderPanel.inert) {
+    setZoomExpanded(false);
+    zoomValue.focus();
   }
 });
 

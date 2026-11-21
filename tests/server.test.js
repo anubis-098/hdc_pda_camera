@@ -41,6 +41,23 @@ test('simultaneous uploads have unique filenames', async () => {
   assert.ok(results.every((r) => r.statusCode === 201));
   assert.equal(new Set(results.map((r) => r.json().filename)).size, 8);
 });
+test('Bangkok capture date and Thai remark are used without overwriting an existing photo', async () => {
+  const fields = '--pda-boundary\r\nContent-Disposition: form-data; name="remark"\r\n\r\nรับสินค้า/รอบ 1\r\n'
+    + '--pda-boundary\r\nContent-Disposition: form-data; name="capturedAt"\r\n\r\n2026-08-25T18:30:00.000Z\r\n';
+  const first = await upload('Other', jpeg, true, fields);
+  assert.equal(first.statusCode, 201, first.body);
+  assert.equal(first.json().filename, '26082026_รับสินค้า_รอบ 1.jpg');
+
+  const differentPhoto = Buffer.from([255, 216, 255, 225, 0, 2, 255, 217]);
+  const second = await upload('Other', differentPhoto, false, fields);
+  assert.equal(second.statusCode, 201, second.body);
+  assert.equal(second.json().filename, '26082026_รับสินค้า_รอบ 1_2.jpg');
+
+  const { images } = (await app.inject('/api/images?destination=Other')).json();
+  const original = images.find((image) => image.filename === first.json().filename);
+  assert.deepEqual((await app.inject(original.url)).rawPayload, jpeg);
+  assert.equal((await app.inject({ method: 'DELETE', url: original.url })).statusCode, 200);
+});
 test('prepares Other, hides legacy folders and persists newly created folder names', async () => {
   const root = path.join(storage, 'folder-preparation');
   const instance = buildApp({ storageRoot: root, logger: false, httpsEnabled: false });
@@ -79,7 +96,7 @@ test('invalid destinations, empty/corrupt JPEGs and oversized images leave no te
 });
 test('extra multipart fields are rejected and cleaned up', async () => {
   const extra = '--pda-boundary\r\nContent-Disposition: form-data; name="extra"\r\n\r\nvalue\r\n';
-  assert.equal((await upload('Other', jpeg, false, extra)).statusCode, 413);
+  assert.equal((await upload('Other', jpeg, false, extra)).statusCode, 400);
   assert.deepEqual((await fs.readdir(storage)).filter((name) => name.endsWith('.part')), []);
 });
 test('static assets and missing resources return correct types/status', async () => {
