@@ -50,7 +50,7 @@ by camera/browser; see the [Image Capture specification](https://www.w3.org/TR/i
 - `backend/server.js`: API and static file server
 - `Dockerfile`: container image for the app
 - `docker-compose.yml`: local container runtime
-- `nginx/nginx.conf.example`: reverse proxy TLS example
+- `nginx/nginx.conf`: HTTPS reverse proxy used by Docker Compose
 - `.env.example`: runtime configuration
 
 ## Quick start
@@ -101,6 +101,8 @@ For camera access on Zebra Chrome, prefer:
 
 ```env
 COMPOSE_HTTP_PORT=8083
+BIND_ADDRESS=127.0.0.1
+HDC_TLS_DIRECTORY=D:/HDC-Certificates
 STORAGE_HOST_PATH=/mnt/pda-camera
 INBOUND_DIR=Inbound
 RETURN_DIR=Return
@@ -111,8 +113,8 @@ OTHER_DIR=Other
 `STORAGE_HOST_PATH` is a directory accessible to the Docker host. If the final
 storage is an SMB share, mount it on the Docker host first and set this variable
 to the mounted directory. For a local smoke test, leave it unset and create
-an `uploads` directory in the project if needed. The app listens on `127.0.0.1:8083` on the
-host; Nginx should proxy to that address.
+an `uploads` directory in the project if needed. Nginx publishes HTTPS on
+port 8083. See [HTTPS in LAN](#https-in-lan) for certificates and LAN access.
 
 3. Start with Docker Compose:
 
@@ -120,10 +122,11 @@ host; Nginx should proxy to that address.
 docker compose up --build -d
 ```
 
-4. Open directly for an HTTP smoke test:
+4. Check HTTPS from a device that trusts the CA, using the IP or hostname
+   listed in the server certificate:
 
 ```text
-http://127.0.0.1:8083
+https://10.84.185.1:8083
 ```
 
 5. Stop:
@@ -169,37 +172,32 @@ before retrying because the server may already have saved the image.
 
 ### Docker Compose with Nginx
 
-Set these values in the server's `.env`, using the actual DNS name on the
-server certificate. Use forward slashes for the Windows bind-mount path.
+Like the other HDC apps on ports 8080–8082, Docker Compose publishes the host
+port directly to Nginx's HTTPS listener. Set these values in the server's
+`.env`. Use forward slashes for the Windows bind-mount path.
 
 ```env
-PDA_HTTPS_HOSTNAME=pda-camera.local
-PDA_HTTPS_BIND_ADDRESS=0.0.0.0
-PDA_CERT_DIR=D:/HDC-Certificates
-HTTPS_ENABLED=false
+BIND_ADDRESS=0.0.0.0
+COMPOSE_HTTP_PORT=8083
+HDC_TLS_DIRECTORY=D:/HDC-Certificates
 ```
 
-Save the following PEM files in `PDA_CERT_DIR`:
+Use the same PEM files in `HDC_TLS_DIRECTORY` as the other HDC apps:
 
-- `pda-camera.pem` contains the server certificate followed by any intermediate
-  certificates. Its Subject Alternative Name must include the hostname used
-  by the PDA.
-- `pda-camera-key.pem` contains the matching server private key. Keep it out of Git.
+- `hdc-server.crt` contains the server certificate followed by any intermediate
+  certificates. Its IP Subject Alternative Name must include `10.84.185.1`
+  when users connect to that address.
+- `hdc-server.key` contains the matching server private key. Keep it out of Git.
 
 `D:\HDC-Certificates\hdc-root-ca.cer` is the root CA certificate to trust on
 the Zebra TC22 and operator PCs. Obtain the server certificate and key from
 your CA administrator if you only have the root CA certificate.
 
-Point DNS for `PDA_HTTPS_HOSTNAME` to the Windows server. Start Nginx and the app
-with `docker compose --profile https up -d --build`. Nginx redirects port 80
-to HTTPS on port 443 and proxies to the app over the Compose network. Verify
-the deployment at `https://<PDA_HTTPS_HOSTNAME>/api/health` from a client that
-trusts the CA. For a local-only deployment, set `PDA_HTTPS_BIND_ADDRESS=127.0.0.1`.
-
-If Nginx already runs on the server, use `nginx/nginx.conf.example` as the
-site configuration instead of starting the Compose HTTPS profile. Set the
-hostname and paths to match the server certificate and key. Its upstream is
-`http://127.0.0.1:8083` for Compose or `http://127.0.0.1:8090` for Node.js directly.
+Run `docker compose up -d --build --wait`. Nginx maps host port `8083` to
+container port `443` and proxies to `pda-camera:8090` over the Compose network.
+Verify `https://10.84.185.1:8083/api/health` from a client that trusts the CA.
+For local access only, use `BIND_ADDRESS=127.0.0.1` and a certificate valid for
+the local address.
 
 ### Temporary development option
 
@@ -252,7 +250,7 @@ every output size, byte-for-byte upload, native fallback, rapid zoom, saved sett
 Thai notices and viewport bounds. Real TC22 sensor behavior, SOTI trust deployment
 and Ubuntu SMB permissions still need an on-device deployment check.
 
-After updating code, rebuild with the same Compose profile used for deployment.
-`COMPOSE_HTTP_PORT` selects the direct host-side loopback port. The app is
+After updating code, run `docker compose up -d --build --wait`.
+`COMPOSE_HTTP_PORT` selects the host port for Nginx HTTPS. The app is
 designed for the trusted warehouse LAN; gallery/delete APIs do not implement
 user login.
